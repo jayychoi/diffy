@@ -151,10 +151,10 @@ impl AppState {
     pub fn undo(&mut self) {
         if let Some(entry) = self.undo_stack.pop() {
             let old_fi = self.file_index;
-            if let Some(file) = self.diff.files.get_mut(entry.file_index) {
-                if let Some(hunk) = file.hunks.get_mut(entry.hunk_index) {
-                    hunk.status = entry.old_status;
-                }
+            if let Some(file) = self.diff.files.get_mut(entry.file_index)
+                && let Some(hunk) = file.hunks.get_mut(entry.hunk_index)
+            {
+                hunk.status = entry.old_status;
             }
             self.file_index = entry.file_index;
             self.hunk_index = entry.hunk_index;
@@ -559,5 +559,89 @@ mod tests {
         state.next_file();
         assert_eq!(state.viewport_offset, 0);
         assert_eq!(state.file_index, 1);
+    }
+
+    // --- Edge case tests ---
+
+    #[test]
+    fn test_single_hunk_navigation() {
+        let mut state = make_state(vec![
+            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)]),
+        ]);
+        // next_hunk on single hunk should stay at index 0
+        state.next_hunk();
+        assert_eq!(state.file_index, 0);
+        assert_eq!(state.hunk_index, 0);
+        // prev_hunk on single hunk should stay at index 0
+        state.prev_hunk();
+        assert_eq!(state.file_index, 0);
+        assert_eq!(state.hunk_index, 0);
+    }
+
+    #[test]
+    fn test_large_hunk_viewport() {
+        let mut state = make_state(vec![
+            make_file("a.rs", vec![make_hunk_with_lines(100, ReviewStatus::Pending)]),
+        ]);
+        state.viewport_height = 20;
+        state.ensure_visible();
+        // Hunk = 1 header + 100 lines = 101, viewport = 20
+        // ensure_visible scrolls to show bottom: 101 - 20 = 81
+        assert_eq!(state.viewport_offset, 81);
+        // Scroll up
+        state.scroll_up(30);
+        assert_eq!(state.viewport_offset, 51);
+        // Scroll back down to max
+        state.scroll_down(100);
+        assert_eq!(state.viewport_offset, 81);
+    }
+
+    #[test]
+    fn test_all_pending_next_pending() {
+        let mut state = make_state(vec![
+            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending), make_hunk(ReviewStatus::Pending)]),
+            make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
+        ]);
+        // All hunks are Pending; next_pending should move to next hunk
+        assert_eq!(state.file_index, 0);
+        assert_eq!(state.hunk_index, 0);
+        let found = state.next_pending();
+        assert!(found);
+        assert_eq!(state.file_index, 0);
+        assert_eq!(state.hunk_index, 1);
+        // Again
+        let found = state.next_pending();
+        assert!(found);
+        assert_eq!(state.file_index, 1);
+        assert_eq!(state.hunk_index, 0);
+        // Again — should wrap to first hunk
+        let found = state.next_pending();
+        assert!(found);
+        assert_eq!(state.file_index, 0);
+        assert_eq!(state.hunk_index, 0);
+    }
+
+    #[test]
+    fn test_undo_after_toggle_cycle() {
+        let mut state = make_state(vec![
+            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)]),
+        ]);
+        // Toggle 3 times: Pending → Accepted → Rejected → Pending
+        state.toggle_current_status();
+        assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Accepted);
+        state.toggle_current_status();
+        assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Rejected);
+        state.toggle_current_status();
+        assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Pending);
+        // Undo 3 times: Pending → Rejected → Accepted → Pending
+        state.undo();
+        assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Rejected);
+        state.undo();
+        assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Accepted);
+        state.undo();
+        assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Pending);
+        // Stack should be empty, another undo is a no-op
+        state.undo();
+        assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Pending);
     }
 }

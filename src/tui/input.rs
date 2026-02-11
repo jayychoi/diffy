@@ -76,7 +76,7 @@ pub fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
     }
 }
 
-/// Apply action to state
+/// Apply action to state; returns the action for re-dispatch check
 pub fn apply_action(action: Action, state: &mut AppState) {
     match action {
         Action::NextHunk => state.next_hunk(),
@@ -121,5 +121,154 @@ pub fn apply_action(action: Action, state: &mut AppState) {
             state.mode = AppMode::Normal;
         }
         Action::None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crate::model::{Diff, DiffLine, FileDiff, Hunk, ReviewStatus};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn make_hunk(status: ReviewStatus) -> Hunk {
+        Hunk {
+            header: "@@ -1,1 +1,1 @@".to_string(),
+            old_start: 1,
+            old_count: 1,
+            new_start: 1,
+            new_count: 1,
+            lines: vec![DiffLine::Context("x".to_string())],
+            status,
+        }
+    }
+
+    fn make_file(name: &str, hunks: Vec<Hunk>) -> FileDiff {
+        FileDiff {
+            old_path: name.to_string(),
+            new_path: name.to_string(),
+            raw_old_path: format!("a/{}", name),
+            raw_new_path: format!("b/{}", name),
+            hunks,
+            is_binary: false,
+        }
+    }
+
+    fn state_normal() -> AppState {
+        let diff = Diff {
+            files: vec![
+                make_file("a.rs", vec![make_hunk(ReviewStatus::Pending), make_hunk(ReviewStatus::Pending)]),
+                make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
+            ],
+        };
+        AppState::new(diff)
+    }
+
+    // --- Normal mode key mapping tests ---
+
+    #[test]
+    fn test_key_j() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('j')), &state), Action::NextHunk);
+    }
+
+    #[test]
+    fn test_key_k() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('k')), &state), Action::PrevHunk);
+    }
+
+    #[test]
+    fn test_key_down() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Down), &state), Action::NextHunk);
+    }
+
+    #[test]
+    fn test_key_a_accept() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('a')), &state), Action::Accept);
+    }
+
+    #[test]
+    fn test_key_r_reject() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('r')), &state), Action::Reject);
+    }
+
+    #[test]
+    fn test_key_space_toggle() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char(' ')), &state), Action::Toggle);
+    }
+
+    #[test]
+    fn test_key_u_undo() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('u')), &state), Action::Undo);
+    }
+
+    #[test]
+    fn test_key_shift_g_last() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('G')), &state), Action::LastHunk);
+    }
+
+    #[test]
+    fn test_key_g_pending_g() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('g')), &state), Action::EnterPendingG);
+    }
+
+    #[test]
+    fn test_key_tab() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Tab), &state), Action::NextPending);
+    }
+
+    // --- Ctrl combo tests ---
+
+    #[test]
+    fn test_ctrl_u_page_up() {
+        let state = state_normal();
+        assert_eq!(handle_key(&ctrl('u'), &state), Action::PageUp);
+    }
+
+    #[test]
+    fn test_ctrl_d_page_down() {
+        let state = state_normal();
+        assert_eq!(handle_key(&ctrl('d'), &state), Action::PageDown);
+    }
+
+    // --- PendingG mode tests ---
+
+    #[test]
+    fn test_pending_g_then_g() {
+        let mut state = state_normal();
+        state.mode = AppMode::PendingG;
+        assert_eq!(handle_key(&key(KeyCode::Char('g')), &state), Action::FirstHunk);
+    }
+
+    #[test]
+    fn test_pending_g_then_other() {
+        let mut state = state_normal();
+        state.mode = AppMode::PendingG;
+        assert_eq!(handle_key(&key(KeyCode::Char('j')), &state), Action::CancelPendingG);
+    }
+
+    // --- ConfirmQuit mode test ---
+
+    #[test]
+    fn test_confirm_quit_y() {
+        let mut state = state_normal();
+        state.mode = AppMode::ConfirmQuit;
+        assert_eq!(handle_key(&key(KeyCode::Char('y')), &state), Action::ConfirmQuit);
     }
 }

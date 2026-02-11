@@ -4,23 +4,14 @@
 //!   git diff | diffy | git apply    (파이프 모드)
 //!   diffy [--staged|--head|--ref REF] [--json] [--hook-mode] [--apply]
 
-mod cli;
-mod git;
-mod hook;
-mod model;
-mod output;
-mod parse;
-mod revert;
-mod tty;
-mod tui;
-
 use std::io::{self, Read, Write};
 use std::process;
 
 use anyhow::Result;
 use clap::Parser;
 
-use cli::Cli;
+use diffy::{git, hook, model, output, parse, revert, tty, tui};
+use diffy::cli::Cli;
 
 fn run() -> Result<i32> {
     let cli = Cli::parse();
