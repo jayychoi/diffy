@@ -5,7 +5,7 @@ use crate::model::ReviewStatus;
 use super::state::{AppState, AppMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Action {
+pub(super) enum Action {
     NextHunk,
     PrevHunk,
     NextFile,
@@ -38,7 +38,7 @@ pub enum Action {
 }
 
 /// Map key event to action based on current mode
-pub fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
+pub(super) fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
     match state.mode {
         AppMode::Normal => {
             // Check Ctrl+key combos first
@@ -97,7 +97,7 @@ pub fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
 }
 
 /// Apply action to state; returns the action for re-dispatch check
-pub fn apply_action(action: Action, state: &mut AppState) {
+pub(super) fn apply_action(action: Action, state: &mut AppState) {
     match action {
         Action::NextHunk => state.next_hunk(),
         Action::PrevHunk => state.prev_hunk(),

@@ -1,7 +1,5 @@
 //! TUI module
 
-#![allow(dead_code)]
-
 mod render;
 mod input;
 mod state;

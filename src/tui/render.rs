@@ -11,7 +11,7 @@ use crate::model::{DiffLine, FileReviewSummary, ReviewStatus};
 use super::state::{AppState, AppMode};
 
 /// Main render function
-pub fn render(frame: &mut Frame, state: &AppState) {
+pub(super) fn render(frame: &mut Frame, state: &AppState) {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([

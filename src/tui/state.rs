@@ -3,7 +3,7 @@
 use crate::model::{Diff, DiffLine, FileDiff, Hunk, ReviewStatus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AppMode {
+pub(super) enum AppMode {
     Normal,
     Help,
     ConfirmQuit,
@@ -12,36 +12,36 @@ pub enum AppMode {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SearchMatch {
-    pub file_index: usize,
-    pub hunk_index: usize,
-    pub line_index: usize,
+pub(super) struct SearchMatch {
+    pub(super) file_index: usize,
+    pub(super) hunk_index: usize,
+    pub(super) line_index: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UndoEntry {
-    pub file_index: usize,
-    pub hunk_index: usize,
-    pub old_status: ReviewStatus,
+pub(super) struct UndoEntry {
+    pub(super) file_index: usize,
+    pub(super) hunk_index: usize,
+    pub(super) old_status: ReviewStatus,
 }
 
-pub struct AppState {
-    pub diff: Diff,
-    pub file_index: usize,
-    pub hunk_index: usize,
-    pub mode: AppMode,
-    pub should_quit: bool,
-    pub undo_stack: Vec<UndoEntry>,
-    pub viewport_offset: usize,
-    pub viewport_height: usize,
-    pub show_file_tree: bool,
-    pub search_query: String,
-    pub search_matches: Vec<SearchMatch>,
-    pub search_index: Option<usize>,
+pub(super) struct AppState {
+    pub(super) diff: Diff,
+    pub(super) file_index: usize,
+    pub(super) hunk_index: usize,
+    pub(super) mode: AppMode,
+    pub(super) should_quit: bool,
+    pub(super) undo_stack: Vec<UndoEntry>,
+    pub(super) viewport_offset: usize,
+    pub(super) viewport_height: usize,
+    pub(super) show_file_tree: bool,
+    pub(super) search_query: String,
+    pub(super) search_matches: Vec<SearchMatch>,
+    pub(super) search_index: Option<usize>,
 }
 
 impl AppState {
-    pub fn new(diff: Diff) -> Self {
+    pub(super) fn new(diff: Diff) -> Self {
         Self {
             diff,
             file_index: 0,
@@ -58,23 +58,23 @@ impl AppState {
         }
     }
 
-    pub fn current_file(&self) -> Option<&FileDiff> {
+    pub(super) fn current_file(&self) -> Option<&FileDiff> {
         self.diff.files.get(self.file_index)
     }
 
-    pub fn current_hunk(&self) -> Option<&Hunk> {
+    pub(super) fn current_hunk(&self) -> Option<&Hunk> {
         self.current_file()
             .and_then(|f| f.hunks.get(self.hunk_index))
     }
 
-    pub fn current_hunk_mut(&mut self) -> Option<&mut Hunk> {
+    pub(super) fn current_hunk_mut(&mut self) -> Option<&mut Hunk> {
         self.diff
             .files
             .get_mut(self.file_index)
             .and_then(|f| f.hunks.get_mut(self.hunk_index))
     }
 
-    pub fn next_hunk(&mut self) {
+    pub(super) fn next_hunk(&mut self) {
         if let Some(file) = self.current_file() {
             if self.hunk_index + 1 < file.hunks.len() {
                 self.hunk_index += 1;
@@ -87,7 +87,7 @@ impl AppState {
         self.ensure_visible();
     }
 
-    pub fn prev_hunk(&mut self) {
+    pub(super) fn prev_hunk(&mut self) {
         if self.hunk_index > 0 {
             self.hunk_index -= 1;
         } else if self.file_index > 0 {
@@ -100,7 +100,7 @@ impl AppState {
         self.ensure_visible();
     }
 
-    pub fn next_file(&mut self) {
+    pub(super) fn next_file(&mut self) {
         if self.file_index + 1 < self.diff.files.len() {
             self.file_index += 1;
             self.hunk_index = 0;
@@ -109,7 +109,7 @@ impl AppState {
         self.ensure_visible();
     }
 
-    pub fn prev_file(&mut self) {
+    pub(super) fn prev_file(&mut self) {
         if self.file_index > 0 {
             self.file_index -= 1;
             self.hunk_index = 0;
@@ -126,7 +126,7 @@ impl AppState {
         });
     }
 
-    pub fn set_current_status(&mut self, status: ReviewStatus) {
+    pub(super) fn set_current_status(&mut self, status: ReviewStatus) {
         if let Some(hunk) = self.current_hunk() {
             let old_status = hunk.status;
             let fi = self.file_index;
@@ -138,7 +138,7 @@ impl AppState {
         }
     }
 
-    pub fn toggle_current_status(&mut self) {
+    pub(super) fn toggle_current_status(&mut self) {
         if let Some(hunk) = self.current_hunk() {
             let old_status = hunk.status;
             let fi = self.file_index;
@@ -154,7 +154,7 @@ impl AppState {
         }
     }
 
-    pub fn set_all_status(&mut self, status: ReviewStatus) {
+    pub(super) fn set_all_status(&mut self, status: ReviewStatus) {
         for fi in 0..self.diff.files.len() {
             for hi in 0..self.diff.files[fi].hunks.len() {
                 let old_status = self.diff.files[fi].hunks[hi].status;
@@ -164,7 +164,7 @@ impl AppState {
         }
     }
 
-    pub fn undo(&mut self) {
+    pub(super) fn undo(&mut self) {
         if let Some(entry) = self.undo_stack.pop() {
             let old_fi = self.file_index;
             if let Some(file) = self.diff.files.get_mut(entry.file_index)
@@ -181,14 +181,14 @@ impl AppState {
         }
     }
 
-    pub fn first_hunk(&mut self) {
+    pub(super) fn first_hunk(&mut self) {
         self.file_index = 0;
         self.hunk_index = 0;
         self.viewport_offset = 0;
         self.ensure_visible();
     }
 
-    pub fn last_hunk(&mut self) {
+    pub(super) fn last_hunk(&mut self) {
         if let Some(last_fi) = self.diff.files.len().checked_sub(1) {
             self.file_index = last_fi;
             self.hunk_index = self.diff.files[last_fi].hunks.len().saturating_sub(1);
@@ -198,7 +198,7 @@ impl AppState {
     }
 
     /// Move to the next Pending hunk (wrap-around). Returns false if none found.
-    pub fn next_pending(&mut self) -> bool {
+    pub(super) fn next_pending(&mut self) -> bool {
         let total = self.total_hunks();
         if total == 0 {
             return false;
@@ -221,7 +221,7 @@ impl AppState {
         false
     }
 
-    pub fn flat_to_indices(&self, flat: usize) -> (usize, usize) {
+    pub(super) fn flat_to_indices(&self, flat: usize) -> (usize, usize) {
         let mut remaining = flat;
         for (fi, file) in self.diff.files.iter().enumerate() {
             if remaining < file.hunks.len() {
@@ -235,11 +235,11 @@ impl AppState {
         (last_fi, last_hi)
     }
 
-    pub fn total_hunks(&self) -> usize {
+    pub(super) fn total_hunks(&self) -> usize {
         self.diff.files.iter().map(|f| f.hunks.len()).sum()
     }
 
-    pub fn reviewed_hunks(&self) -> usize {
+    pub(super) fn reviewed_hunks(&self) -> usize {
         self.diff
             .files
             .iter()
@@ -248,7 +248,7 @@ impl AppState {
             .count()
     }
 
-    pub fn accepted_hunks(&self) -> usize {
+    pub(super) fn accepted_hunks(&self) -> usize {
         self.diff
             .files
             .iter()
@@ -259,24 +259,23 @@ impl AppState {
 
     // --- Viewport / scroll ---
 
-    pub fn current_hunk_line_offset(&self) -> usize {
+    pub(super) fn current_hunk_line_offset(&self) -> usize {
         let file = match self.current_file() {
             Some(f) => f,
             None => return 0,
         };
         let mut offset = 0;
-        for (hi, hunk) in file.hunks.iter().enumerate() {
+        for (hi, _) in file.hunks.iter().enumerate() {
             if hi == self.hunk_index {
                 return offset;
             }
             // All non-current hunks are collapsed (1 line header only)
             offset += 1;
-            let _ = hunk; // suppress unused warning
         }
         offset
     }
 
-    pub fn virtual_doc_height(&self) -> usize {
+    pub(super) fn virtual_doc_height(&self) -> usize {
         let file = match self.current_file() {
             Some(f) => f,
             None => return 0,
@@ -292,7 +291,7 @@ impl AppState {
         height
     }
 
-    pub fn ensure_visible(&mut self) {
+    pub(super) fn ensure_visible(&mut self) {
         let offset = self.current_hunk_line_offset();
         let current_hunk_height = self.current_hunk().map_or(1, |h| 1 + h.lines.len());
 
@@ -307,22 +306,22 @@ impl AppState {
         }
     }
 
-    pub fn scroll_up(&mut self, n: usize) {
+    pub(super) fn scroll_up(&mut self, n: usize) {
         self.viewport_offset = self.viewport_offset.saturating_sub(n);
     }
 
-    pub fn scroll_down(&mut self, n: usize) {
+    pub(super) fn scroll_down(&mut self, n: usize) {
         let max = self.virtual_doc_height().saturating_sub(self.viewport_height);
         self.viewport_offset = (self.viewport_offset + n).min(max);
     }
 
     // --- Search ---
 
-    pub fn has_active_search(&self) -> bool {
+    pub(super) fn has_active_search(&self) -> bool {
         !self.search_query.is_empty() && !self.search_matches.is_empty()
     }
 
-    pub fn execute_search(&mut self) {
+    pub(super) fn execute_search(&mut self) {
         self.search_matches.clear();
         if self.search_query.is_empty() {
             self.search_index = None;
@@ -353,7 +352,7 @@ impl AppState {
         }
     }
 
-    pub fn goto_match(&mut self, idx: usize) {
+    pub(super) fn goto_match(&mut self, idx: usize) {
         if let Some(m) = self.search_matches.get(idx) {
             let old_fi = self.file_index;
             self.file_index = m.file_index;
@@ -365,7 +364,7 @@ impl AppState {
         }
     }
 
-    pub fn next_match(&mut self) {
+    pub(super) fn next_match(&mut self) {
         if self.search_matches.is_empty() {
             return;
         }
@@ -377,7 +376,7 @@ impl AppState {
         self.goto_match(next);
     }
 
-    pub fn prev_match(&mut self) {
+    pub(super) fn prev_match(&mut self) {
         if self.search_matches.is_empty() {
             return;
         }
@@ -389,13 +388,13 @@ impl AppState {
         self.goto_match(prev);
     }
 
-    pub fn clear_search(&mut self) {
+    pub(super) fn clear_search(&mut self) {
         self.search_query.clear();
         self.search_matches.clear();
         self.search_index = None;
     }
 
-    pub fn flat_hunk_index(&self) -> usize {
+    pub(super) fn flat_hunk_index(&self) -> usize {
         let mut index = 0;
         for (fi, file) in self.diff.files.iter().enumerate() {
             if fi < self.file_index {

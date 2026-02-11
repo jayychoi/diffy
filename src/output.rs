@@ -104,7 +104,7 @@ pub fn write_json<W: Write>(diff: &Diff, writer: &mut W) -> Result<()> {
     }).collect();
 
     let output = JsonOutput {
-        version: "0.2.0",
+        version: env!("CARGO_PKG_VERSION"),
         summary: JsonSummary {
             total_files: diff.files.len(),
             total_hunks: accepted + rejected + pending,
@@ -393,7 +393,7 @@ mod tests {
         write_json(&diff, &mut buf).unwrap();
         let json: Value = serde_json::from_slice(&buf).unwrap();
 
-        assert_eq!(json["version"], "0.2.0");
+        assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(json["summary"]["accepted"], 1);
         assert_eq!(json["summary"]["rejected"], 0);
         assert_eq!(json["summary"]["total_hunks"], 1);
