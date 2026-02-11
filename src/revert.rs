@@ -8,6 +8,8 @@ use anyhow::{Result, bail, Context};
 use crate::git;
 use crate::model::{Diff, DiffLine, ReviewStatus};
 
+const MAX_BACKUP_REFS: usize = 10;
+
 /// .diffy/ 디렉토리 경로 반환 (없으면 생성)
 fn ensure_diffy_dir() -> Result<PathBuf> {
     let root = git::repo_root()?;
@@ -42,7 +44,20 @@ pub fn backup() -> Result<String> {
         .open(&ref_file)?;
     writeln!(f, "{}", sha)?;
 
+    prune_backups(&ref_file)?;
+
     Ok(sha)
+}
+
+/// Keep only the last MAX_BACKUP_REFS entries
+fn prune_backups(ref_file: &std::path::Path) -> Result<()> {
+    let contents = fs::read_to_string(ref_file)?;
+    let lines: Vec<&str> = contents.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.len() > MAX_BACKUP_REFS {
+        let kept = &lines[lines.len() - MAX_BACKUP_REFS..];
+        fs::write(ref_file, kept.join("\n") + "\n")?;
+    }
+    Ok(())
 }
 
 /// 마지막 backup에서 git stash apply
@@ -51,7 +66,7 @@ pub fn restore() -> Result<i32> {
     let ref_file = dir.join("backup-refs");
 
     if !ref_file.exists() {
-        eprintln!("[diffy] 백업이 없습니다.");
+        eprintln!("[diffy] No backup found.");
         return Ok(1);
     }
 
@@ -59,7 +74,7 @@ pub fn restore() -> Result<i32> {
     let last_ref = contents.lines().last().unwrap_or("").trim();
 
     if last_ref.is_empty() {
-        eprintln!("[diffy] 백업이 없습니다.");
+        eprintln!("[diffy] No backup found.");
         return Ok(1);
     }
 
@@ -69,10 +84,18 @@ pub fn restore() -> Result<i32> {
         .context("git stash apply failed")?;
 
     if status.success() {
-        eprintln!("[diffy] 백업을 복원했습니다: {}", &last_ref[..8.min(last_ref.len())]);
+        // Remove the restored ref from backup-refs
+        let lines: Vec<&str> = contents.lines().filter(|l| !l.trim().is_empty()).collect();
+        if lines.len() <= 1 {
+            fs::remove_file(&ref_file)?;
+        } else {
+            let kept = &lines[..lines.len() - 1];
+            fs::write(&ref_file, kept.join("\n") + "\n")?;
+        }
+        eprintln!("[diffy] Backup restored: {}", &last_ref[..8.min(last_ref.len())]);
         Ok(0)
     } else {
-        eprintln!("[diffy] 백업 복원에 실패했습니다.");
+        eprintln!("[diffy] Backup restore failed.");
         Ok(1)
     }
 }
@@ -273,6 +296,41 @@ mod tests {
         let patch = generate_reverse_patch(&diff);
         assert!(!patch.contains("accepted"));
         assert!(patch.contains("-rejected"));
+    }
+
+    #[test]
+    fn test_prune_under_limit_noop() {
+        let dir = std::env::temp_dir().join("diffy_test_prune_under");
+        let _ = fs::remove_file(&dir);
+        let mut content = String::new();
+        for i in 0..MAX_BACKUP_REFS {
+            content.push_str(&format!("sha{}\n", i));
+        }
+        fs::write(&dir, &content).unwrap();
+        prune_backups(&dir).unwrap();
+        let result = fs::read_to_string(&dir).unwrap();
+        let lines: Vec<_> = result.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), MAX_BACKUP_REFS);
+        fs::remove_file(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_prune_over_limit() {
+        let dir = std::env::temp_dir().join("diffy_test_prune_over");
+        let _ = fs::remove_file(&dir);
+        let mut content = String::new();
+        for i in 0..15 {
+            content.push_str(&format!("sha{}\n", i));
+        }
+        fs::write(&dir, &content).unwrap();
+        prune_backups(&dir).unwrap();
+        let result = fs::read_to_string(&dir).unwrap();
+        let lines: Vec<_> = result.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), MAX_BACKUP_REFS);
+        // Should keep the last 10 (sha5..sha14)
+        assert_eq!(lines[0], "sha5");
+        assert_eq!(lines[9], "sha14");
+        fs::remove_file(&dir).unwrap();
     }
 
     #[test]
