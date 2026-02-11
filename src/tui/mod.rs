@@ -1,4 +1,4 @@
-//! TUI 모듈
+//! TUI module
 
 #![allow(dead_code)]
 
@@ -15,10 +15,8 @@ use ratatui::Terminal;
 
 use state::AppState;
 
-/// TUI를 실행하고 리뷰 결과를 반환한다
+/// Run the TUI and return the reviewed diff
 pub fn run(diff: Diff) -> Result<Diff> {
-    // /dev/tty는 쓰기용으로만 열기 (ratatui 백엔드용)
-    // 키 입력은 crossterm use-dev-tty feature가 자동으로 /dev/tty에서 읽음
     let mut tty_write = OpenOptions::new()
         .write(true)
         .open("/dev/tty")?;
@@ -34,7 +32,6 @@ pub fn run(diff: Diff) -> Result<Diff> {
 
     let result = run_loop(&mut terminal, &mut state);
 
-    // alternate screen 복원
     let tty_write = terminal.backend_mut();
     execute!(tty_write, terminal::LeaveAlternateScreen)?;
     crossterm::terminal::disable_raw_mode()?;
@@ -49,11 +46,22 @@ fn run_loop(
     state: &mut AppState,
 ) -> Result<()> {
     loop {
+        // Update viewport height from terminal size
+        let size = terminal.size()?;
+        state.viewport_height = (size.height as usize).saturating_sub(2); // file bar + status bar
+        state.ensure_visible();
+
         terminal.draw(|f| render::render(f, state))?;
 
         if let Event::Key(key_event) = crossterm::event::read()? {
-            let action = input::handle_key(key_event.code, state);
+            let action = input::handle_key(&key_event, state);
             input::apply_action(action, state);
+
+            // CancelPendingG: re-dispatch the same key in Normal mode
+            if action == input::Action::CancelPendingG {
+                let action2 = input::handle_key(&key_event, state);
+                input::apply_action(action2, state);
+            }
         }
 
         if state.should_quit {

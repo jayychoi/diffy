@@ -1,6 +1,6 @@
-//! 키 입력 처리
+//! Key input handling
 
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::model::ReviewStatus;
 use super::state::{AppState, AppMode};
 
@@ -13,8 +13,16 @@ pub enum Action {
     Accept,
     Reject,
     Toggle,
+    Undo,
     AcceptAll,
     RejectAll,
+    FirstHunk,
+    LastHunk,
+    NextPending,
+    EnterPendingG,
+    CancelPendingG,
+    PageUp,
+    PageDown,
     ToggleHelp,
     RequestQuit,
     ConfirmQuit,
@@ -22,28 +30,45 @@ pub enum Action {
     None,
 }
 
-/// 키를 액션으로 변환 (모드에 따라)
-pub fn handle_key(key: KeyCode, state: &AppState) -> Action {
+/// Map key event to action based on current mode
+pub fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
     match state.mode {
-        AppMode::Normal => match key {
-            KeyCode::Char('j') | KeyCode::Down => Action::NextHunk,
-            KeyCode::Char('k') | KeyCode::Up => Action::PrevHunk,
-            KeyCode::Char('n') => Action::NextFile,
-            KeyCode::Char('N') => Action::PrevFile,
-            KeyCode::Char('a') => Action::Accept,
-            KeyCode::Char('r') => Action::Reject,
-            KeyCode::Char(' ') | KeyCode::Enter => Action::Toggle,
-            KeyCode::Char('A') => Action::AcceptAll,
-            KeyCode::Char('R') => Action::RejectAll,
-            KeyCode::Char('?') => Action::ToggleHelp,
-            KeyCode::Char('q') | KeyCode::Esc => Action::RequestQuit,
-            _ => Action::None,
-        },
-        AppMode::Help => {
-            // 아무 키나 눌러도 도움말 닫기
-            Action::ToggleHelp
+        AppMode::Normal => {
+            // Check Ctrl+key combos first
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                return match key.code {
+                    KeyCode::Char('u') => Action::PageUp,
+                    KeyCode::Char('d') => Action::PageDown,
+                    _ => Action::None,
+                };
+            }
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => Action::NextHunk,
+                KeyCode::Char('k') | KeyCode::Up => Action::PrevHunk,
+                KeyCode::Char('n') => Action::NextFile,
+                KeyCode::Char('N') => Action::PrevFile,
+                KeyCode::Char('a') => Action::Accept,
+                KeyCode::Char('r') => Action::Reject,
+                KeyCode::Char(' ') | KeyCode::Enter => Action::Toggle,
+                KeyCode::Char('u') => Action::Undo,
+                KeyCode::Char('A') => Action::AcceptAll,
+                KeyCode::Char('R') => Action::RejectAll,
+                KeyCode::Char('g') => Action::EnterPendingG,
+                KeyCode::Char('G') => Action::LastHunk,
+                KeyCode::Tab => Action::NextPending,
+                KeyCode::PageUp => Action::PageUp,
+                KeyCode::PageDown => Action::PageDown,
+                KeyCode::Char('?') => Action::ToggleHelp,
+                KeyCode::Char('q') | KeyCode::Esc => Action::RequestQuit,
+                _ => Action::None,
+            }
         }
-        AppMode::ConfirmQuit => match key {
+        AppMode::PendingG => match key.code {
+            KeyCode::Char('g') => Action::FirstHunk,
+            _ => Action::CancelPendingG,
+        },
+        AppMode::Help => Action::ToggleHelp,
+        AppMode::ConfirmQuit => match key.code {
             KeyCode::Char('y') | KeyCode::Enter => Action::ConfirmQuit,
             KeyCode::Char('n') | KeyCode::Esc => Action::CancelQuit,
             _ => Action::None,
@@ -51,7 +76,7 @@ pub fn handle_key(key: KeyCode, state: &AppState) -> Action {
     }
 }
 
-/// 액션을 상태에 적용
+/// Apply action to state
 pub fn apply_action(action: Action, state: &mut AppState) {
     match action {
         Action::NextHunk => state.next_hunk(),
@@ -61,8 +86,24 @@ pub fn apply_action(action: Action, state: &mut AppState) {
         Action::Accept => state.set_current_status(ReviewStatus::Accepted),
         Action::Reject => state.set_current_status(ReviewStatus::Rejected),
         Action::Toggle => state.toggle_current_status(),
+        Action::Undo => state.undo(),
         Action::AcceptAll => state.set_all_status(ReviewStatus::Accepted),
         Action::RejectAll => state.set_all_status(ReviewStatus::Rejected),
+        Action::FirstHunk => {
+            state.first_hunk();
+            state.mode = AppMode::Normal;
+        }
+        Action::LastHunk => state.last_hunk(),
+        Action::NextPending => { state.next_pending(); }
+        Action::EnterPendingG => {
+            state.mode = AppMode::PendingG;
+        }
+        Action::CancelPendingG => {
+            state.mode = AppMode::Normal;
+            // The caller (run_loop) will re-dispatch this key in Normal mode
+        }
+        Action::PageUp => state.scroll_up(state.viewport_height / 2),
+        Action::PageDown => state.scroll_down(state.viewport_height / 2),
         Action::ToggleHelp => {
             state.mode = if state.mode == AppMode::Help {
                 AppMode::Normal
