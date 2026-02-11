@@ -1,6 +1,6 @@
 //! App state
 
-use crate::model::{Diff, FileDiff, Hunk, ReviewStatus};
+use crate::model::{Diff, DiffLine, FileDiff, Hunk, ReviewStatus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppMode {
@@ -8,6 +8,14 @@ pub enum AppMode {
     Help,
     ConfirmQuit,
     PendingG,
+    Search,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchMatch {
+    pub file_index: usize,
+    pub hunk_index: usize,
+    pub line_index: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,6 +34,10 @@ pub struct AppState {
     pub undo_stack: Vec<UndoEntry>,
     pub viewport_offset: usize,
     pub viewport_height: usize,
+    pub show_file_tree: bool,
+    pub search_query: String,
+    pub search_matches: Vec<SearchMatch>,
+    pub search_index: Option<usize>,
 }
 
 impl AppState {
@@ -39,6 +51,10 @@ impl AppState {
             undo_stack: Vec::new(),
             viewport_offset: 0,
             viewport_height: 24,
+            show_file_tree: true,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+            search_index: None,
         }
     }
 
@@ -298,6 +314,85 @@ impl AppState {
     pub fn scroll_down(&mut self, n: usize) {
         let max = self.virtual_doc_height().saturating_sub(self.viewport_height);
         self.viewport_offset = (self.viewport_offset + n).min(max);
+    }
+
+    // --- Search ---
+
+    pub fn has_active_search(&self) -> bool {
+        !self.search_query.is_empty() && !self.search_matches.is_empty()
+    }
+
+    pub fn execute_search(&mut self) {
+        self.search_matches.clear();
+        if self.search_query.is_empty() {
+            self.search_index = None;
+            return;
+        }
+        let q = self.search_query.to_lowercase();
+        for (fi, file) in self.diff.files.iter().enumerate() {
+            for (hi, hunk) in file.hunks.iter().enumerate() {
+                for (li, line) in hunk.lines.iter().enumerate() {
+                    let text = match line {
+                        DiffLine::Context(s) | DiffLine::Added(s) | DiffLine::Removed(s) => s,
+                        DiffLine::NoNewline => continue,
+                    };
+                    if text.to_lowercase().contains(&q) {
+                        self.search_matches.push(SearchMatch {
+                            file_index: fi,
+                            hunk_index: hi,
+                            line_index: li,
+                        });
+                    }
+                }
+            }
+        }
+        if self.search_matches.is_empty() {
+            self.search_index = None;
+        } else {
+            self.search_index = Some(0);
+        }
+    }
+
+    pub fn goto_match(&mut self, idx: usize) {
+        if let Some(m) = self.search_matches.get(idx) {
+            let old_fi = self.file_index;
+            self.file_index = m.file_index;
+            self.hunk_index = m.hunk_index;
+            if m.file_index != old_fi {
+                self.viewport_offset = 0;
+            }
+            self.ensure_visible();
+        }
+    }
+
+    pub fn next_match(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+        let next = match self.search_index {
+            Some(i) => (i + 1) % self.search_matches.len(),
+            None => 0,
+        };
+        self.search_index = Some(next);
+        self.goto_match(next);
+    }
+
+    pub fn prev_match(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+        let prev = match self.search_index {
+            Some(0) | None => self.search_matches.len() - 1,
+            Some(i) => i - 1,
+        };
+        self.search_index = Some(prev);
+        self.goto_match(prev);
+    }
+
+    pub fn clear_search(&mut self) {
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.search_index = None;
     }
 
     pub fn flat_hunk_index(&self) -> usize {
@@ -643,5 +738,115 @@ mod tests {
         // Stack should be empty, another undo is a no-op
         state.undo();
         assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Pending);
+    }
+
+    // --- Search tests ---
+
+    fn make_search_state() -> AppState {
+        let hunk0 = Hunk {
+            header: "@@ -1,3 +1,3 @@".to_string(),
+            old_start: 1, old_count: 3, new_start: 1, new_count: 3,
+            lines: vec![
+                DiffLine::Context("hello world".to_string()),
+                DiffLine::Added("foo bar".to_string()),
+                DiffLine::Removed("baz qux".to_string()),
+            ],
+            status: ReviewStatus::Pending,
+        };
+        let hunk1 = Hunk {
+            header: "@@ -10,2 +10,2 @@".to_string(),
+            old_start: 10, old_count: 2, new_start: 10, new_count: 2,
+            lines: vec![
+                DiffLine::Context("hello again".to_string()),
+                DiffLine::Added("world peace".to_string()),
+            ],
+            status: ReviewStatus::Pending,
+        };
+        let file0 = make_file("a.rs", vec![hunk0, hunk1]);
+        let file1 = make_file("b.rs", vec![Hunk {
+            header: "@@ -1,1 +1,1 @@".to_string(),
+            old_start: 1, old_count: 1, new_start: 1, new_count: 1,
+            lines: vec![DiffLine::Context("hello b".to_string())],
+            status: ReviewStatus::Pending,
+        }]);
+        make_state(vec![file0, file1])
+    }
+
+    #[test]
+    fn test_search_execute() {
+        let mut state = make_search_state();
+        state.search_query = "hello".to_string();
+        state.execute_search();
+        // "hello world" (f0,h0,l0), "hello again" (f0,h1,l0), "hello b" (f1,h0,l0)
+        assert_eq!(state.search_matches.len(), 3);
+        assert_eq!(state.search_index, Some(0));
+    }
+
+    #[test]
+    fn test_search_case_insensitive() {
+        let mut state = make_search_state();
+        state.search_query = "HELLO".to_string();
+        state.execute_search();
+        assert_eq!(state.search_matches.len(), 3);
+    }
+
+    #[test]
+    fn test_search_no_match() {
+        let mut state = make_search_state();
+        state.search_query = "zzzzz".to_string();
+        state.execute_search();
+        assert!(state.search_matches.is_empty());
+        assert_eq!(state.search_index, None);
+    }
+
+    #[test]
+    fn test_search_next_prev() {
+        let mut state = make_search_state();
+        state.search_query = "hello".to_string();
+        state.execute_search();
+        assert_eq!(state.search_index, Some(0));
+
+        state.next_match();
+        assert_eq!(state.search_index, Some(1));
+        state.next_match();
+        assert_eq!(state.search_index, Some(2));
+        // Wrap around
+        state.next_match();
+        assert_eq!(state.search_index, Some(0));
+
+        // Prev wraps backward
+        state.prev_match();
+        assert_eq!(state.search_index, Some(2));
+        state.prev_match();
+        assert_eq!(state.search_index, Some(1));
+    }
+
+    #[test]
+    fn test_search_clear() {
+        let mut state = make_search_state();
+        state.search_query = "hello".to_string();
+        state.execute_search();
+        assert!(!state.search_matches.is_empty());
+
+        state.clear_search();
+        assert!(state.search_query.is_empty());
+        assert!(state.search_matches.is_empty());
+        assert_eq!(state.search_index, None);
+    }
+
+    #[test]
+    fn test_search_navigates_to_match() {
+        let mut state = make_search_state();
+        state.search_query = "hello".to_string();
+        state.execute_search();
+        // First match is (f0, h0, l0) — already there
+        state.goto_match(0);
+        assert_eq!(state.file_index, 0);
+        assert_eq!(state.hunk_index, 0);
+
+        // Third match is in file 1
+        state.goto_match(2);
+        assert_eq!(state.file_index, 1);
+        assert_eq!(state.hunk_index, 0);
     }
 }

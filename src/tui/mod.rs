@@ -9,7 +9,7 @@ mod state;
 use anyhow::Result;
 use crate::model::Diff;
 use std::fs::OpenOptions;
-use crossterm::{event::Event, execute, terminal};
+use crossterm::{event::{Event, KeyCode, KeyModifiers}, execute, terminal};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
@@ -54,6 +54,15 @@ fn run_loop(
         terminal.draw(|f| render::render(f, state))?;
 
         if let Event::Key(key_event) = crossterm::event::read()? {
+            // Search mode: intercept char input before action dispatch
+            if state.mode == state::AppMode::Search
+                && let KeyCode::Char(c) = key_event.code
+                && !key_event.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                state.search_query.push(c);
+                continue;
+            }
+
             let action = input::handle_key(&key_event, state);
             input::apply_action(action, state);
 

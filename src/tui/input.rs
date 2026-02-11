@@ -23,6 +23,13 @@ pub enum Action {
     CancelPendingG,
     PageUp,
     PageDown,
+    ToggleFileTree,
+    EnterSearch,
+    SubmitSearch,
+    CancelSearch,
+    SearchBackspace,
+    NextMatch,
+    PrevMatch,
     ToggleHelp,
     RequestQuit,
     ConfirmQuit,
@@ -45,8 +52,12 @@ pub fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => Action::NextHunk,
                 KeyCode::Char('k') | KeyCode::Up => Action::PrevHunk,
-                KeyCode::Char('n') => Action::NextFile,
-                KeyCode::Char('N') => Action::PrevFile,
+                KeyCode::Char('n') => {
+                    if state.has_active_search() { Action::NextMatch } else { Action::NextFile }
+                }
+                KeyCode::Char('N') => {
+                    if state.has_active_search() { Action::PrevMatch } else { Action::PrevFile }
+                }
                 KeyCode::Char('a') => Action::Accept,
                 KeyCode::Char('r') => Action::Reject,
                 KeyCode::Char(' ') | KeyCode::Enter => Action::Toggle,
@@ -58,6 +69,8 @@ pub fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
                 KeyCode::Tab => Action::NextPending,
                 KeyCode::PageUp => Action::PageUp,
                 KeyCode::PageDown => Action::PageDown,
+                KeyCode::Char('/') => Action::EnterSearch,
+                KeyCode::Char('f') => Action::ToggleFileTree,
                 KeyCode::Char('?') => Action::ToggleHelp,
                 KeyCode::Char('q') | KeyCode::Esc => Action::RequestQuit,
                 _ => Action::None,
@@ -66,6 +79,13 @@ pub fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
         AppMode::PendingG => match key.code {
             KeyCode::Char('g') => Action::FirstHunk,
             _ => Action::CancelPendingG,
+        },
+        AppMode::Search => match key.code {
+            KeyCode::Enter => Action::SubmitSearch,
+            KeyCode::Esc => Action::CancelSearch,
+            KeyCode::Backspace => Action::SearchBackspace,
+            KeyCode::Char(_) => Action::None, // char input handled in run_loop
+            _ => Action::None,
         },
         AppMode::Help => Action::ToggleHelp,
         AppMode::ConfirmQuit => match key.code {
@@ -104,6 +124,33 @@ pub fn apply_action(action: Action, state: &mut AppState) {
         }
         Action::PageUp => state.scroll_up(state.viewport_height / 2),
         Action::PageDown => state.scroll_down(state.viewport_height / 2),
+        Action::ToggleFileTree => {
+            state.show_file_tree = !state.show_file_tree;
+        }
+        Action::EnterSearch => {
+            state.search_query.clear();
+            state.mode = AppMode::Search;
+        }
+        Action::SubmitSearch => {
+            state.execute_search();
+            state.mode = AppMode::Normal;
+            if let Some(0) = state.search_index {
+                state.goto_match(0);
+            }
+        }
+        Action::CancelSearch => {
+            state.clear_search();
+            state.mode = AppMode::Normal;
+        }
+        Action::SearchBackspace => {
+            state.search_query.pop();
+        }
+        Action::NextMatch => {
+            state.next_match();
+        }
+        Action::PrevMatch => {
+            state.prev_match();
+        }
         Action::ToggleHelp => {
             state.mode = if state.mode == AppMode::Help {
                 AppMode::Normal
@@ -270,5 +317,66 @@ mod tests {
         let mut state = state_normal();
         state.mode = AppMode::ConfirmQuit;
         assert_eq!(handle_key(&key(KeyCode::Char('y')), &state), Action::ConfirmQuit);
+    }
+
+    // --- File tree toggle ---
+
+    #[test]
+    fn test_key_f_toggle_tree() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('f')), &state), Action::ToggleFileTree);
+    }
+
+    #[test]
+    fn test_toggle_file_tree_action() {
+        let mut state = state_normal();
+        assert!(state.show_file_tree);
+        apply_action(Action::ToggleFileTree, &mut state);
+        assert!(!state.show_file_tree);
+        apply_action(Action::ToggleFileTree, &mut state);
+        assert!(state.show_file_tree);
+    }
+
+    // --- Search mode ---
+
+    #[test]
+    fn test_key_slash_search() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('/')), &state), Action::EnterSearch);
+    }
+
+    #[test]
+    fn test_search_mode_keys() {
+        let mut state = state_normal();
+        state.mode = AppMode::Search;
+        assert_eq!(handle_key(&key(KeyCode::Enter), &state), Action::SubmitSearch);
+        assert_eq!(handle_key(&key(KeyCode::Esc), &state), Action::CancelSearch);
+        assert_eq!(handle_key(&key(KeyCode::Backspace), &state), Action::SearchBackspace);
+        // Char keys return None (handled in run_loop)
+        assert_eq!(handle_key(&key(KeyCode::Char('x')), &state), Action::None);
+    }
+
+    // --- n/N context-sensitive ---
+
+    #[test]
+    fn test_n_key_no_search() {
+        let state = state_normal();
+        // No active search → NextFile
+        assert_eq!(handle_key(&key(KeyCode::Char('n')), &state), Action::NextFile);
+        assert_eq!(handle_key(&key(KeyCode::Char('N')), &state), Action::PrevFile);
+    }
+
+    #[test]
+    fn test_n_key_with_search() {
+        let mut state = state_normal();
+        // Simulate an active search
+        state.search_query = "x".to_string();
+        state.search_matches.push(super::super::state::SearchMatch {
+            file_index: 0,
+            hunk_index: 0,
+            line_index: 0,
+        });
+        assert_eq!(handle_key(&key(KeyCode::Char('n')), &state), Action::NextMatch);
+        assert_eq!(handle_key(&key(KeyCode::Char('N')), &state), Action::PrevMatch);
     }
 }

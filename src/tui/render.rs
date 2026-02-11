@@ -7,23 +7,37 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
-use crate::model::{DiffLine, ReviewStatus};
+use crate::model::{DiffLine, FileReviewSummary, ReviewStatus};
 use super::state::{AppState, AppMode};
 
 /// Main render function
 pub fn render(frame: &mut Frame, state: &AppState) {
-    let chunks = Layout::default()
+    let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),  // file bar
-            Constraint::Min(0),    // diff view
+            Constraint::Min(0),    // main content
             Constraint::Length(1), // status bar
         ])
         .split(frame.area());
 
-    render_file_bar(frame, state, chunks[0]);
-    render_diff_view(frame, state, chunks[1]);
-    render_status_bar(frame, state, chunks[2]);
+    render_file_bar(frame, state, vertical[0]);
+
+    if state.show_file_tree {
+        let horizontal = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(30), // file tree
+                Constraint::Min(0),    // diff view
+            ])
+            .split(vertical[1]);
+        render_file_tree(frame, state, horizontal[0]);
+        render_diff_view(frame, state, horizontal[1]);
+    } else {
+        render_diff_view(frame, state, vertical[1]);
+    }
+
+    render_status_bar(frame, state, vertical[2]);
 
     if state.mode == AppMode::Help {
         render_help_overlay(frame, state);
@@ -32,16 +46,114 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
 /// File bar
 fn render_file_bar(frame: &mut Frame, state: &AppState, area: Rect) {
-    let text = if let Some(f) = state.current_file() {
+    let spans = if let Some(f) = state.current_file() {
         let file_num = state.file_index + 1;
         let file_total = state.diff.files.len();
-        format!(" {}  [file {}/{}]", f.new_path, file_num, file_total)
+        let added = f.lines_added();
+        let removed = f.lines_removed();
+        vec![
+            Span::styled(
+                format!(" {}  ", f.new_path),
+                Style::default().bg(Color::Blue).fg(Color::White),
+            ),
+            Span::styled(
+                format!("+{}", added),
+                Style::default().bg(Color::Blue).fg(Color::Green),
+            ),
+            Span::styled(" ", Style::default().bg(Color::Blue)),
+            Span::styled(
+                format!("-{}", removed),
+                Style::default().bg(Color::Blue).fg(Color::Red),
+            ),
+            Span::styled(
+                format!("  [file {}/{}]", file_num, file_total),
+                Style::default().bg(Color::Blue).fg(Color::White),
+            ),
+        ]
     } else {
-        " (no file)".to_string()
+        vec![Span::styled(
+            " (no file)",
+            Style::default().bg(Color::Blue).fg(Color::White),
+        )]
     };
 
-    let paragraph = Paragraph::new(text).style(Style::default().bg(Color::Blue).fg(Color::White));
+    let paragraph = Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Blue));
     frame.render_widget(paragraph, area);
+}
+
+/// File tree sidebar
+fn render_file_tree(frame: &mut Frame, state: &AppState, area: Rect) {
+    let mut lines: Vec<Line> = Vec::new();
+
+    for (i, file) in state.diff.files.iter().enumerate() {
+        let is_current = i == state.file_index;
+        let marker = if is_current { ">" } else { " " };
+
+        // Truncate path to fit: area.width - marker(1) - stats(~10) - icon(2) - borders(2)
+        let max_path_len = (area.width as usize).saturating_sub(15);
+        let path = &file.new_path;
+        let display_path = if path.len() > max_path_len {
+            let truncated = &path[path.len() - max_path_len + 3..];
+            format!("...{}", truncated)
+        } else {
+            path.to_string()
+        };
+
+        let added = file.lines_added();
+        let removed = file.lines_removed();
+
+        let review_icon = match file.review_summary() {
+            FileReviewSummary::AllAccepted => Span::styled(" ✓", Style::default().fg(Color::Green)),
+            FileReviewSummary::HasRejected => Span::styled(" ✗", Style::default().fg(Color::Red)),
+            FileReviewSummary::Partial => Span::styled(" ~", Style::default().fg(Color::Yellow)),
+            FileReviewSummary::AllPending | FileReviewSummary::Empty => Span::raw("  "),
+        };
+
+        let bg = if is_current {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(format!("{} ", marker), bg.fg(Color::Yellow)),
+            Span::styled(display_path, bg.fg(Color::White)),
+            Span::styled(format!(" +{}", added), bg.fg(Color::Green)),
+            Span::styled(format!(" -{}", removed), bg.fg(Color::Red)),
+            review_icon,
+        ]));
+    }
+
+    let block = Block::default()
+        .borders(Borders::RIGHT)
+        .title(" Files ")
+        .style(Style::default());
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, area);
+}
+
+/// Check if a line in the current file is a search match
+fn is_search_match(state: &AppState, hunk_index: usize, line_index: usize) -> bool {
+    if !state.has_active_search() {
+        return false;
+    }
+    let fi = state.file_index;
+    state.search_matches.iter().any(|m| {
+        m.file_index == fi && m.hunk_index == hunk_index && m.line_index == line_index
+    })
+}
+
+/// Check if a line is the *current* search match (for stronger highlight)
+fn is_current_search_match(state: &AppState, hunk_index: usize, line_index: usize) -> bool {
+    if let Some(idx) = state.search_index
+        && let Some(m) = state.search_matches.get(idx)
+    {
+        return m.file_index == state.file_index
+            && m.hunk_index == hunk_index
+            && m.line_index == line_index;
+    }
+    false
 }
 
 /// Build virtual document lines for the current file
@@ -88,52 +200,60 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
             let max_line = (hunk.old_start + hunk.old_count).max(hunk.new_start + hunk.new_count);
             let gutter_width = max_line.to_string().len();
 
-            for diff_line in &hunk.lines {
+            for (li, diff_line) in hunk.lines.iter().enumerate() {
+                let search_bg = if is_current_search_match(state, hi, li) {
+                    Some(Color::Yellow)
+                } else if is_search_match(state, hi, li) {
+                    Some(Color::Rgb(50, 50, 0))
+                } else {
+                    None
+                };
+
                 let line = match diff_line {
                     DiffLine::Context(s) => {
                         let old_str = format!("{:>w$}", old_line, w = gutter_width);
                         let new_str = format!("{:>w$}", new_line, w = gutter_width);
                         old_line += 1;
                         new_line += 1;
+                        let mut gutter_style = Style::default().fg(Color::DarkGray);
+                        let mut text_style = Style::default().fg(Color::DarkGray);
+                        if let Some(bg) = search_bg {
+                            gutter_style = gutter_style.bg(bg);
+                            text_style = text_style.bg(bg);
+                        }
                         Line::from(vec![
-                            Span::styled(
-                                format!("  {} {} ", old_str, new_str),
-                                Style::default().fg(Color::DarkGray),
-                            ),
-                            Span::styled(
-                                format!("| {}", s),
-                                Style::default().fg(Color::DarkGray),
-                            ),
+                            Span::styled(format!("  {} {} ", old_str, new_str), gutter_style),
+                            Span::styled(format!("| {}", s), text_style),
                         ])
                     }
                     DiffLine::Added(s) => {
                         let pad = " ".repeat(gutter_width);
                         let new_str = format!("{:>w$}", new_line, w = gutter_width);
                         new_line += 1;
+                        let mut gutter_style = Style::default().fg(Color::Green);
+                        let mut text_style = Style::default().fg(Color::Green);
+                        if let Some(bg) = search_bg {
+                            gutter_style = gutter_style.bg(bg);
+                            text_style = text_style.bg(bg);
+                        }
                         Line::from(vec![
-                            Span::styled(
-                                format!("  {} {} ", pad, new_str),
-                                Style::default().fg(Color::Green),
-                            ),
-                            Span::styled(
-                                format!("|+{}", s),
-                                Style::default().fg(Color::Green),
-                            ),
+                            Span::styled(format!("  {} {} ", pad, new_str), gutter_style),
+                            Span::styled(format!("|+{}", s), text_style),
                         ])
                     }
                     DiffLine::Removed(s) => {
                         let old_str = format!("{:>w$}", old_line, w = gutter_width);
                         let pad = " ".repeat(gutter_width);
                         old_line += 1;
+                        let mut gutter_style = Style::default().fg(Color::Red);
+                        let mut text_style = Style::default().fg(Color::Red);
+                        if let Some(bg) = search_bg {
+                            gutter_style = gutter_style.bg(bg);
+                            text_style = text_style.bg(bg);
+                        }
                         Line::from(vec![
-                            Span::styled(
-                                format!("  {} {} ", old_str, pad),
-                                Style::default().fg(Color::Red),
-                            ),
-                            Span::styled(
-                                format!("|-{}", s),
-                                Style::default().fg(Color::Red),
-                            ),
+                            Span::styled(format!("  {} {} ", old_str, pad), gutter_style),
+                            Span::styled(format!("|-{}", s), text_style),
                         ])
                     }
                     DiffLine::NoNewline => {
@@ -171,6 +291,9 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
         AppMode::ConfirmQuit => {
             " Quit? Unsaved review will be lost. (y/n)".to_string()
         }
+        AppMode::Search => {
+            format!(" /{}\u{2588}                              (Enter: search, Esc: cancel)", state.search_query)
+        }
         AppMode::PendingG => {
             let total = state.total_hunks();
             let current = state.flat_hunk_index() + 1;
@@ -195,8 +318,14 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
             let reviewed = state.reviewed_hunks();
             let accepted = state.accepted_hunks();
             let rejected = reviewed - accepted;
+            let search_hint = if state.has_active_search() {
+                let idx = state.search_index.map_or(0, |i| i + 1);
+                format!(" | [{}/{}] n/N:match", idx, state.search_matches.len())
+            } else {
+                String::new()
+            };
             format!(
-                " file {}/{} | hunk {}/{} | reviewed: {}/{} [a:{} r:{}] | j/k a/r ?:help q:quit",
+                " file {}/{} | hunk {}/{} | reviewed: {}/{} [a:{} r:{}]{} | j/k a/r ?:help q:quit",
                 state.file_index + 1,
                 state.diff.files.len(),
                 current,
@@ -205,6 +334,7 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
                 total,
                 accepted,
                 rejected,
+                search_hint,
             )
         }
     };
@@ -274,6 +404,19 @@ fn render_help_overlay(frame: &mut Frame, _state: &AppState) {
         Line::from(vec![
             Span::styled("R         ", Style::default().fg(Color::Cyan)),
             Span::raw("Reject all hunks"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("f         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle file tree"),
+        ]),
+        Line::from(vec![
+            Span::styled("/         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Search in diff"),
+        ]),
+        Line::from(vec![
+            Span::styled("n/N       ", Style::default().fg(Color::Cyan)),
+            Span::raw("Next/prev match (or file)"),
         ]),
         Line::from(""),
         Line::from(vec![
