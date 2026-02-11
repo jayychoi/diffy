@@ -1,0 +1,13 @@
+{
+  "name": "diffy",
+  "description": "TUI diff reviewer for AI-generated code changes",
+  "version": "0.2.0",
+  "hooks": {
+    "Stop": [
+      {
+        "command": "bash plugin/hooks/stop.sh",
+        "description": "Review code changes before Claude stops"
+      }
+    ]
+  }
+}
