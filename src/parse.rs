@@ -178,6 +178,7 @@ fn parse_hunk(lines: &[&str], start: usize) -> (Hunk, usize) {
         new_count,
         lines: hunk_lines,
         status: ReviewStatus::Pending,
+        comment: None,
     };
 
     (hunk, i)

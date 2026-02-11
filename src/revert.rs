@@ -195,6 +195,7 @@ mod tests {
             header: format!("@@ -{},{} +{},{} @@", old_start, old_count, new_start, new_count),
             old_start, old_count, new_start, new_count,
             lines, status,
+            comment: None,
         }
     }
 

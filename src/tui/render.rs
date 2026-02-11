@@ -8,7 +8,8 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 use crate::model::{DiffLine, FileReviewSummary, ReviewStatus};
-use super::state::{AppState, AppMode};
+use super::state::{AppState, AppMode, DiffViewMode};
+use super::highlight;
 
 /// Main render function
 pub(super) fn render(frame: &mut Frame, state: &AppState) {
@@ -41,6 +42,8 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
 
     if state.mode == AppMode::Help {
         render_help_overlay(frame, state);
+    } else if state.mode == AppMode::Stats {
+        render_stats_overlay(frame, state);
     }
 }
 
@@ -164,6 +167,9 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
         None => return lines,
     };
 
+    // Get file extension for highlighting
+    let ext = file.new_path.rsplit('.').next().unwrap_or("");
+
     for (hi, hunk) in file.hunks.iter().enumerate() {
         let is_current = hi == state.hunk_index;
         let status_icon = match hunk.status {
@@ -190,6 +196,14 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
             Span::raw("  "),
             status_icon,
         ]));
+
+        // Show comment below header if present
+        if let Some(comment) = &hunk.comment {
+            lines.push(Line::from(vec![
+                Span::raw("    # "),
+                Span::styled(comment, Style::default().fg(Color::Yellow)),
+            ]));
+        }
 
         // Expand current hunk with line numbers
         if is_current {
@@ -221,10 +235,16 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
                             gutter_style = gutter_style.bg(bg);
                             text_style = text_style.bg(bg);
                         }
-                        Line::from(vec![
+                        let mut line_spans = vec![
                             Span::styled(format!("  {} {} ", old_str, new_str), gutter_style),
-                            Span::styled(format!("| {}", s), text_style),
-                        ])
+                            Span::styled("| ", text_style),
+                        ];
+                        if state.show_highlight {
+                            line_spans.extend(highlight::highlight_line(s, ext, text_style));
+                        } else {
+                            line_spans.push(Span::styled(s.as_str(), text_style));
+                        }
+                        Line::from(line_spans)
                     }
                     DiffLine::Added(s) => {
                         let pad = " ".repeat(gutter_width);
@@ -236,10 +256,16 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
                             gutter_style = gutter_style.bg(bg);
                             text_style = text_style.bg(bg);
                         }
-                        Line::from(vec![
+                        let mut line_spans = vec![
                             Span::styled(format!("  {} {} ", pad, new_str), gutter_style),
-                            Span::styled(format!("|+{}", s), text_style),
-                        ])
+                            Span::styled("|+", text_style),
+                        ];
+                        if state.show_highlight {
+                            line_spans.extend(highlight::highlight_line(s, ext, text_style));
+                        } else {
+                            line_spans.push(Span::styled(s.as_str(), text_style));
+                        }
+                        Line::from(line_spans)
                     }
                     DiffLine::Removed(s) => {
                         let old_str = format!("{:>w$}", old_line, w = gutter_width);
@@ -251,10 +277,16 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
                             gutter_style = gutter_style.bg(bg);
                             text_style = text_style.bg(bg);
                         }
-                        Line::from(vec![
+                        let mut line_spans = vec![
                             Span::styled(format!("  {} {} ", old_str, pad), gutter_style),
-                            Span::styled(format!("|-{}", s), text_style),
-                        ])
+                            Span::styled("|-", text_style),
+                        ];
+                        if state.show_highlight {
+                            line_spans.extend(highlight::highlight_line(s, ext, text_style));
+                        } else {
+                            line_spans.push(Span::styled(s.as_str(), text_style));
+                        }
+                        Line::from(line_spans)
                     }
                     DiffLine::NoNewline => {
                         Line::from(Span::styled(
@@ -271,11 +303,172 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
     lines
 }
 
-/// Diff view with viewport scrolling
-fn render_diff_view(frame: &mut Frame, state: &AppState, area: Rect) {
-    let all_lines = build_virtual_doc(state);
+/// Helper enum for side-by-side line pairing
+enum SideBySideLine<'a> {
+    Context(&'a str),
+    Changed(Option<&'a str>, Option<&'a str>),
+}
 
-    // Slice to viewport
+/// Flush buffered removed/added lines into side-by-side pairs
+fn flush_sbs_pairs<'a>(
+    groups: &mut Vec<SideBySideLine<'a>>,
+    removed: &mut Vec<&'a str>,
+    added: &mut Vec<&'a str>,
+) {
+    let max = removed.len().max(added.len());
+    for i in 0..max {
+        groups.push(SideBySideLine::Changed(
+            removed.get(i).copied(),
+            added.get(i).copied(),
+        ));
+    }
+    removed.clear();
+    added.clear();
+}
+
+/// Truncate string to max width with ellipsis
+fn truncate_str(s: &str, max_width: usize) -> String {
+    if s.len() <= max_width {
+        s.to_string()
+    } else if max_width > 3 {
+        format!("{}...", &s[..max_width - 3])
+    } else {
+        s[..max_width].to_string()
+    }
+}
+
+/// Render side-by-side diff view
+fn render_side_by_side(frame: &mut Frame, state: &AppState, area: Rect) {
+    let file = match state.current_file() {
+        Some(f) => f,
+        None => return,
+    };
+
+    let half_width = area.width / 2;
+    let mut all_lines: Vec<Line> = Vec::new();
+
+    for (hi, hunk) in file.hunks.iter().enumerate() {
+        let is_current = hi == state.hunk_index;
+
+        // Hunk header spans both columns
+        let status_icon = match hunk.status {
+            ReviewStatus::Pending => Span::styled("[ ]", Style::default().fg(Color::DarkGray)),
+            ReviewStatus::Accepted => Span::styled("[✓]", Style::default().fg(Color::Green)),
+            ReviewStatus::Rejected => Span::styled("[✗]", Style::default().fg(Color::Red)),
+        };
+        let marker = if is_current {
+            Span::styled("> ", Style::default().fg(Color::Yellow))
+        } else {
+            Span::raw("  ")
+        };
+        let header_style = if is_current {
+            Style::default().fg(Color::Cyan).bg(Color::DarkGray)
+        } else {
+            Style::default().fg(Color::Cyan)
+        };
+        all_lines.push(Line::from(vec![
+            marker,
+            Span::styled(&hunk.header, header_style),
+            Span::raw("  "),
+            status_icon,
+        ]));
+
+        // Show comment below header if present
+        if let Some(comment) = &hunk.comment {
+            all_lines.push(Line::from(vec![
+                Span::raw("    # "),
+                Span::styled(comment, Style::default().fg(Color::Yellow)),
+            ]));
+        }
+
+        // Expand current hunk in side-by-side
+        if is_current {
+            let mut old_line_num = hunk.old_start;
+            let mut new_line_num = hunk.new_start;
+
+            // Pair lines
+            let mut removed_buf: Vec<&str> = Vec::new();
+            let mut added_buf: Vec<&str> = Vec::new();
+            let mut line_groups: Vec<SideBySideLine> = Vec::new();
+
+            // Process hunk lines into groups
+            for diff_line in &hunk.lines {
+                match diff_line {
+                    DiffLine::Context(s) => {
+                        // Flush pending
+                        flush_sbs_pairs(&mut line_groups, &mut removed_buf, &mut added_buf);
+                        line_groups.push(SideBySideLine::Context(s.as_str()));
+                    }
+                    DiffLine::Removed(s) => {
+                        removed_buf.push(s.as_str());
+                    }
+                    DiffLine::Added(s) => {
+                        added_buf.push(s.as_str());
+                    }
+                    DiffLine::NoNewline => {}
+                }
+            }
+            flush_sbs_pairs(&mut line_groups, &mut removed_buf, &mut added_buf);
+
+            // Render each paired line
+            for sbs_line in &line_groups {
+                match sbs_line {
+                    SideBySideLine::Context(s) => {
+                        let left = format!("{:>4} │ {}", old_line_num, s);
+                        let right = format!("{:>4} │ {}", new_line_num, s);
+                        old_line_num += 1;
+                        new_line_num += 1;
+
+                        let left_truncated = truncate_str(&left, half_width as usize);
+                        let right_truncated = truncate_str(&right, half_width as usize);
+
+                        all_lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("{:<w$}", left_truncated, w = half_width as usize),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                            Span::styled(
+                                format!("{:<w$}", right_truncated, w = half_width as usize),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                        ]));
+                    }
+                    SideBySideLine::Changed(left_opt, right_opt) => {
+                        let left_str = if let Some(s) = left_opt {
+                            let num = format!("{:>4} │-{}", old_line_num, s);
+                            old_line_num += 1;
+                            num
+                        } else {
+                            "     │".to_string()
+                        };
+                        let right_str = if let Some(s) = right_opt {
+                            let num = format!("{:>4} │+{}", new_line_num, s);
+                            new_line_num += 1;
+                            num
+                        } else {
+                            "     │".to_string()
+                        };
+
+                        let left_truncated = truncate_str(&left_str, half_width as usize);
+                        let right_truncated = truncate_str(&right_str, half_width as usize);
+
+                        all_lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("{:<w$}", left_truncated, w = half_width as usize),
+                                Style::default().fg(Color::Red),
+                            ),
+                            Span::styled(
+                                format!("{:<w$}", right_truncated, w = half_width as usize),
+                                Style::default().fg(Color::Green),
+                            ),
+                        ]));
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply viewport
     let start = state.viewport_offset.min(all_lines.len());
     let end = (start + area.height as usize).min(all_lines.len());
     let visible: Vec<Line> = all_lines[start..end].to_vec();
@@ -283,6 +476,27 @@ fn render_diff_view(frame: &mut Frame, state: &AppState, area: Rect) {
     let paragraph = Paragraph::new(visible)
         .block(Block::default().borders(Borders::NONE));
     frame.render_widget(paragraph, area);
+}
+
+/// Diff view with viewport scrolling
+fn render_diff_view(frame: &mut Frame, state: &AppState, area: Rect) {
+    // Fall back to unified if terminal too narrow
+    let use_side_by_side = state.diff_view_mode == DiffViewMode::SideBySide && area.width >= 100;
+
+    if use_side_by_side {
+        render_side_by_side(frame, state, area);
+    } else {
+        let all_lines = build_virtual_doc(state);
+
+        // Slice to viewport
+        let start = state.viewport_offset.min(all_lines.len());
+        let end = (start + area.height as usize).min(all_lines.len());
+        let visible: Vec<Line> = all_lines[start..end].to_vec();
+
+        let paragraph = Paragraph::new(visible)
+            .block(Block::default().borders(Borders::NONE));
+        frame.render_widget(paragraph, area);
+    }
 }
 
 /// Status bar
@@ -293,6 +507,9 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
         }
         AppMode::Search => {
             format!(" /{}\u{2588}                              (Enter: search, Esc: cancel)", state.search_query)
+        }
+        AppMode::CommentEdit => {
+            format!(" comment: {}\u{2588}                    (Enter: save, Esc: cancel)", state.comment_input)
         }
         AppMode::PendingG => {
             let total = state.total_hunks();
@@ -341,6 +558,100 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
 
     let paragraph = Paragraph::new(text)
         .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    frame.render_widget(paragraph, area);
+}
+
+/// Stats overlay
+fn render_stats_overlay(frame: &mut Frame, state: &AppState) {
+    let area = centered_rect(60, 70, frame.area());
+
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(Span::styled("Diff Summary", Style::default().fg(Color::Yellow))));
+    lines.push(Line::from(""));
+
+    // File list
+    for (i, file) in state.diff.files.iter().enumerate() {
+        let is_cursor = i == state.stats_cursor;
+        let marker = if is_cursor { ">" } else { " " };
+
+        let added = file.lines_added();
+        let removed = file.lines_removed();
+
+        let review_icon = match file.review_summary() {
+            FileReviewSummary::AllAccepted => Span::styled(" ✓", Style::default().fg(Color::Green)),
+            FileReviewSummary::HasRejected => Span::styled(" ✗", Style::default().fg(Color::Red)),
+            FileReviewSummary::Partial => Span::styled(" ~", Style::default().fg(Color::Yellow)),
+            FileReviewSummary::AllPending | FileReviewSummary::Empty => Span::raw("  "),
+        };
+
+        let bg = if is_cursor {
+            Some(Color::DarkGray)
+        } else {
+            None
+        };
+
+        let marker_style = Style::default().fg(Color::Yellow);
+        let marker_style = if let Some(bg_color) = bg { marker_style.bg(bg_color) } else { marker_style };
+
+        let path_style = Style::default().fg(Color::White);
+        let path_style = if let Some(bg_color) = bg { path_style.bg(bg_color) } else { path_style };
+
+        let add_style = Style::default().fg(Color::Green);
+        let add_style = if let Some(bg_color) = bg { add_style.bg(bg_color) } else { add_style };
+
+        let rem_style = Style::default().fg(Color::Red);
+        let rem_style = if let Some(bg_color) = bg { rem_style.bg(bg_color) } else { rem_style };
+
+        lines.push(Line::from(vec![
+            Span::styled(format!("{} ", marker), marker_style),
+            Span::styled(&file.new_path, path_style),
+            Span::styled(format!("  +{}", added), add_style),
+            Span::styled(format!(" -{}", removed), rem_style),
+            review_icon,
+        ]));
+    }
+
+    lines.push(Line::from(""));
+
+    // Totals
+    let total_files = state.diff.files.len();
+    let total_added: usize = state.diff.files.iter().map(|f| f.lines_added()).sum();
+    let total_removed: usize = state.diff.files.iter().map(|f| f.lines_removed()).sum();
+    let total_hunks = state.total_hunks();
+    let reviewed = state.reviewed_hunks();
+    let accepted = state.accepted_hunks();
+    let rejected = reviewed - accepted;
+
+    lines.push(Line::from(vec![
+        Span::styled(" Total: ", Style::default().fg(Color::White)),
+        Span::styled(format!("{} files  ", total_files), Style::default().fg(Color::White)),
+        Span::styled(format!("+{}", total_added), Style::default().fg(Color::Green)),
+        Span::styled(format!(" -{}", total_removed), Style::default().fg(Color::Red)),
+    ]));
+
+    lines.push(Line::from(vec![
+        Span::styled(" Reviewed: ", Style::default().fg(Color::White)),
+        Span::styled(
+            format!("{}/{} hunks [a:{} r:{}]", reviewed, total_hunks, accepted, rejected),
+            Style::default().fg(Color::White),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " j/k:navigate Enter:go s/Esc:close",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Diff Summary ")
+        .style(Style::default().bg(Color::Black));
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+
     frame.render_widget(paragraph, area);
 }
 
@@ -396,6 +707,10 @@ fn render_help_overlay(frame: &mut Frame, _state: &AppState) {
             Span::styled("u         ", Style::default().fg(Color::Cyan)),
             Span::raw("Undo last action"),
         ]),
+        Line::from(vec![
+            Span::styled("c         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Add/edit comment on hunk"),
+        ]),
         Line::from(""),
         Line::from(vec![
             Span::styled("A         ", Style::default().fg(Color::Cyan)),
@@ -407,8 +722,24 @@ fn render_help_overlay(frame: &mut Frame, _state: &AppState) {
         ]),
         Line::from(""),
         Line::from(vec![
+            Span::styled("d         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle side-by-side view"),
+        ]),
+        Line::from(vec![
             Span::styled("f         ", Style::default().fg(Color::Cyan)),
             Span::raw("Toggle file tree"),
+        ]),
+        Line::from(vec![
+            Span::styled("h         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle syntax highlighting"),
+        ]),
+        Line::from(vec![
+            Span::styled("m         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle mouse mode"),
+        ]),
+        Line::from(vec![
+            Span::styled("s         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Diff summary"),
         ]),
         Line::from(vec![
             Span::styled("/         ", Style::default().fg(Color::Cyan)),
@@ -488,6 +819,7 @@ mod tests {
             old_start, old_count, new_start, new_count,
             lines,
             status: ReviewStatus::Pending,
+            comment: None,
         }
     }
 
@@ -551,5 +883,26 @@ mod tests {
         // Removed line (index 2) should have '-' marker
         let removed_text: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(removed_text.contains("-old"), "Should contain -old: {}", removed_text);
+    }
+
+    #[test]
+    fn test_side_by_side_pair_lines() {
+        // Test the line pairing logic
+        let mut removed_buf: Vec<&str> = vec!["old1", "old2"];
+        let mut added_buf: Vec<&str> = vec!["new1", "new2", "new3"];
+        let mut groups: Vec<SideBySideLine> = Vec::new();
+
+        flush_sbs_pairs(&mut groups, &mut removed_buf, &mut added_buf);
+
+        assert_eq!(groups.len(), 3);
+        assert!(removed_buf.is_empty());
+        assert!(added_buf.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_str() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+        assert_eq!(truncate_str("hello world!", 8), "hello...");
+        assert_eq!(truncate_str("hi", 2), "hi");
     }
 }

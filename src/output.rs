@@ -77,6 +77,8 @@ struct JsonFile<'a> {
 struct JsonHunk {
     header: String,
     status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comment: Option<String>,
 }
 
 /// 리뷰 결과를 JSON으로 출력한다.
@@ -95,6 +97,7 @@ pub fn write_json<W: Write>(diff: &Diff, writer: &mut W) -> Result<()> {
             JsonHunk {
                 header: h.header.clone(),
                 status: format!("{:?}", h.status).to_lowercase(),
+                comment: h.comment.clone(),
             }
         }).collect();
         JsonFile {
@@ -145,6 +148,7 @@ mod tests {
             new_count,
             lines,
             status,
+            comment: None,
         }
     }
 

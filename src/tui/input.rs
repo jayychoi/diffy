@@ -31,6 +31,14 @@ pub(super) enum Action {
     NextMatch,
     PrevMatch,
     ToggleHelp,
+    ToggleStats,
+    ToggleMouse,
+    ToggleHighlight,
+    ToggleDiffView,
+    EnterComment,
+    SubmitComment,
+    CancelComment,
+    CommentBackspace,
     RequestQuit,
     ConfirmQuit,
     CancelQuit,
@@ -70,7 +78,12 @@ pub(super) fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
                 KeyCode::PageUp => Action::PageUp,
                 KeyCode::PageDown => Action::PageDown,
                 KeyCode::Char('/') => Action::EnterSearch,
+                KeyCode::Char('c') => Action::EnterComment,
+                KeyCode::Char('d') => Action::ToggleDiffView,
                 KeyCode::Char('f') => Action::ToggleFileTree,
+                KeyCode::Char('h') => Action::ToggleHighlight,
+                KeyCode::Char('m') => Action::ToggleMouse,
+                KeyCode::Char('s') => Action::ToggleStats,
                 KeyCode::Char('?') => Action::ToggleHelp,
                 KeyCode::Char('q') | KeyCode::Esc => Action::RequestQuit,
                 _ => Action::None,
@@ -88,6 +101,20 @@ pub(super) fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
             _ => Action::None,
         },
         AppMode::Help => Action::ToggleHelp,
+        AppMode::Stats => match key.code {
+            KeyCode::Char('j') | KeyCode::Down => Action::NextHunk,
+            KeyCode::Char('k') | KeyCode::Up => Action::PrevHunk,
+            KeyCode::Enter => Action::Accept,
+            KeyCode::Char('s') | KeyCode::Esc | KeyCode::Char('q') => Action::ToggleStats,
+            _ => Action::None,
+        },
+        AppMode::CommentEdit => match key.code {
+            KeyCode::Enter => Action::SubmitComment,
+            KeyCode::Esc => Action::CancelComment,
+            KeyCode::Backspace => Action::CommentBackspace,
+            KeyCode::Char(_) => Action::None, // char input handled in run_loop
+            _ => Action::None,
+        },
         AppMode::ConfirmQuit => match key.code {
             KeyCode::Char('y') | KeyCode::Enter => Action::ConfirmQuit,
             KeyCode::Char('n') | KeyCode::Esc => Action::CancelQuit,
@@ -99,11 +126,29 @@ pub(super) fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
 /// Apply action to state; returns the action for re-dispatch check
 pub(super) fn apply_action(action: Action, state: &mut AppState) {
     match action {
-        Action::NextHunk => state.next_hunk(),
-        Action::PrevHunk => state.prev_hunk(),
+        Action::NextHunk => {
+            if state.mode == AppMode::Stats {
+                state.stats_cursor_down();
+            } else {
+                state.next_hunk();
+            }
+        }
+        Action::PrevHunk => {
+            if state.mode == AppMode::Stats {
+                state.stats_cursor_up();
+            } else {
+                state.prev_hunk();
+            }
+        }
         Action::NextFile => state.next_file(),
         Action::PrevFile => state.prev_file(),
-        Action::Accept => state.set_current_status(ReviewStatus::Accepted),
+        Action::Accept => {
+            if state.mode == AppMode::Stats {
+                state.stats_navigate_to_cursor();
+            } else {
+                state.set_current_status(ReviewStatus::Accepted);
+            }
+        }
         Action::Reject => state.set_current_status(ReviewStatus::Rejected),
         Action::Toggle => state.toggle_current_status(),
         Action::Undo => state.undo(),
@@ -158,6 +203,46 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
                 AppMode::Help
             };
         }
+        Action::ToggleStats => {
+            if state.mode == AppMode::Stats {
+                state.mode = AppMode::Normal;
+            } else {
+                state.stats_cursor = state.file_index;
+                state.mode = AppMode::Stats;
+            }
+        }
+        Action::ToggleMouse => {
+            state.show_mouse = !state.show_mouse;
+        }
+        Action::ToggleHighlight => {
+            state.show_highlight = !state.show_highlight;
+        }
+        Action::ToggleDiffView => {
+            state.diff_view_mode = match state.diff_view_mode {
+                super::state::DiffViewMode::Unified => super::state::DiffViewMode::SideBySide,
+                super::state::DiffViewMode::SideBySide => super::state::DiffViewMode::Unified,
+            };
+        }
+        Action::EnterComment => {
+            // Pre-fill with existing comment
+            if let Some(hunk) = state.current_hunk() {
+                state.comment_input = hunk.comment.clone().unwrap_or_default();
+            }
+            state.mode = AppMode::CommentEdit;
+        }
+        Action::SubmitComment => {
+            let comment = state.comment_input.clone();
+            state.set_current_comment(comment);
+            state.comment_input.clear();
+            state.mode = AppMode::Normal;
+        }
+        Action::CancelComment => {
+            state.comment_input.clear();
+            state.mode = AppMode::Normal;
+        }
+        Action::CommentBackspace => {
+            state.comment_input.pop();
+        }
         Action::RequestQuit => {
             state.mode = AppMode::ConfirmQuit;
         }
@@ -194,6 +279,7 @@ mod tests {
             new_count: 1,
             lines: vec![DiffLine::Context("x".to_string())],
             status,
+            comment: None,
         }
     }
 
@@ -378,5 +464,145 @@ mod tests {
         });
         assert_eq!(handle_key(&key(KeyCode::Char('n')), &state), Action::NextMatch);
         assert_eq!(handle_key(&key(KeyCode::Char('N')), &state), Action::PrevMatch);
+    }
+
+    // --- Stats overlay tests ---
+
+    #[test]
+    fn test_key_s_stats() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('s')), &state), Action::ToggleStats);
+    }
+
+    #[test]
+    fn test_stats_mode_keys() {
+        let mut state = state_normal();
+        state.mode = AppMode::Stats;
+        assert_eq!(handle_key(&key(KeyCode::Char('j')), &state), Action::NextHunk);
+        assert_eq!(handle_key(&key(KeyCode::Char('k')), &state), Action::PrevHunk);
+        assert_eq!(handle_key(&key(KeyCode::Down), &state), Action::NextHunk);
+        assert_eq!(handle_key(&key(KeyCode::Up), &state), Action::PrevHunk);
+        assert_eq!(handle_key(&key(KeyCode::Enter), &state), Action::Accept);
+        assert_eq!(handle_key(&key(KeyCode::Char('s')), &state), Action::ToggleStats);
+        assert_eq!(handle_key(&key(KeyCode::Esc), &state), Action::ToggleStats);
+        assert_eq!(handle_key(&key(KeyCode::Char('q')), &state), Action::ToggleStats);
+        // Other keys should be ignored
+        assert_eq!(handle_key(&key(KeyCode::Char('a')), &state), Action::None);
+    }
+
+    #[test]
+    fn test_toggle_stats_action() {
+        let mut state = state_normal();
+        assert_eq!(state.mode, AppMode::Normal);
+        assert_eq!(state.file_index, 0);
+
+        // Enter stats mode - cursor should match current file
+        apply_action(Action::ToggleStats, &mut state);
+        assert_eq!(state.mode, AppMode::Stats);
+        assert_eq!(state.stats_cursor, 0);
+
+        // Move to different file
+        state.file_index = 1;
+        state.mode = AppMode::Normal;
+
+        // Enter stats again - cursor should match new file
+        apply_action(Action::ToggleStats, &mut state);
+        assert_eq!(state.mode, AppMode::Stats);
+        assert_eq!(state.stats_cursor, 1);
+
+        // Exit stats mode
+        apply_action(Action::ToggleStats, &mut state);
+        assert_eq!(state.mode, AppMode::Normal);
+    }
+
+    // --- Mouse support tests ---
+
+    #[test]
+    fn test_key_m_mouse() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('m')), &state), Action::ToggleMouse);
+    }
+
+    #[test]
+    fn test_toggle_mouse_action() {
+        let mut state = state_normal();
+        assert!(!state.show_mouse);
+        apply_action(Action::ToggleMouse, &mut state);
+        assert!(state.show_mouse);
+        apply_action(Action::ToggleMouse, &mut state);
+        assert!(!state.show_mouse);
+    }
+
+    #[test]
+    fn test_key_h_highlight() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('h')), &state), Action::ToggleHighlight);
+    }
+
+    #[test]
+    fn test_toggle_highlight_action() {
+        let mut state = state_normal();
+        assert!(!state.show_highlight);
+        apply_action(Action::ToggleHighlight, &mut state);
+        assert!(state.show_highlight);
+        apply_action(Action::ToggleHighlight, &mut state);
+        assert!(!state.show_highlight);
+    }
+
+    #[test]
+    fn test_key_d_diff_view() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('d')), &state), Action::ToggleDiffView);
+    }
+
+    #[test]
+    fn test_toggle_diff_view_action() {
+        let mut state = state_normal();
+        assert_eq!(state.diff_view_mode, super::super::state::DiffViewMode::Unified);
+        apply_action(Action::ToggleDiffView, &mut state);
+        assert_eq!(state.diff_view_mode, super::super::state::DiffViewMode::SideBySide);
+        apply_action(Action::ToggleDiffView, &mut state);
+        assert_eq!(state.diff_view_mode, super::super::state::DiffViewMode::Unified);
+    }
+
+    // --- Comment mode tests ---
+
+    #[test]
+    fn test_key_c_comment() {
+        let state = state_normal();
+        assert_eq!(handle_key(&key(KeyCode::Char('c')), &state), Action::EnterComment);
+    }
+
+    #[test]
+    fn test_comment_mode_keys() {
+        let mut state = state_normal();
+        state.mode = AppMode::CommentEdit;
+        assert_eq!(handle_key(&key(KeyCode::Enter), &state), Action::SubmitComment);
+        assert_eq!(handle_key(&key(KeyCode::Esc), &state), Action::CancelComment);
+        assert_eq!(handle_key(&key(KeyCode::Backspace), &state), Action::CommentBackspace);
+        assert_eq!(handle_key(&key(KeyCode::Char('x')), &state), Action::None);
+    }
+
+    #[test]
+    fn test_comment_submit_action() {
+        let mut state = state_normal();
+        apply_action(Action::EnterComment, &mut state);
+        assert_eq!(state.mode, AppMode::CommentEdit);
+
+        state.comment_input = "needs fix".to_string();
+        apply_action(Action::SubmitComment, &mut state);
+        assert_eq!(state.mode, AppMode::Normal);
+        assert_eq!(state.current_hunk().unwrap().comment, Some("needs fix".to_string()));
+    }
+
+    #[test]
+    fn test_comment_cancel_action() {
+        let mut state = state_normal();
+        apply_action(Action::EnterComment, &mut state);
+        state.comment_input = "draft".to_string();
+        apply_action(Action::CancelComment, &mut state);
+        assert_eq!(state.mode, AppMode::Normal);
+        assert!(state.comment_input.is_empty());
+        assert!(state.current_hunk().unwrap().comment.is_none());
     }
 }

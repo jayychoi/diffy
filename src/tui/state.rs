@@ -9,6 +9,14 @@ pub(super) enum AppMode {
     ConfirmQuit,
     PendingG,
     Search,
+    Stats,
+    CommentEdit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DiffViewMode {
+    Unified,
+    SideBySide,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +31,7 @@ pub(super) struct UndoEntry {
     pub(super) file_index: usize,
     pub(super) hunk_index: usize,
     pub(super) old_status: ReviewStatus,
+    pub(super) old_comment: Option<String>,
 }
 
 pub(super) struct AppState {
@@ -38,6 +47,11 @@ pub(super) struct AppState {
     pub(super) search_query: String,
     pub(super) search_matches: Vec<SearchMatch>,
     pub(super) search_index: Option<usize>,
+    pub(super) stats_cursor: usize,
+    pub(super) show_mouse: bool,
+    pub(super) show_highlight: bool,
+    pub(super) diff_view_mode: DiffViewMode,
+    pub(super) comment_input: String,
 }
 
 impl AppState {
@@ -55,6 +69,11 @@ impl AppState {
             search_query: String::new(),
             search_matches: Vec::new(),
             search_index: None,
+            stats_cursor: 0,
+            show_mouse: false,
+            show_highlight: false,
+            diff_view_mode: DiffViewMode::Unified,
+            comment_input: String::new(),
         }
     }
 
@@ -119,10 +138,14 @@ impl AppState {
     }
 
     fn push_undo(&mut self, file_index: usize, hunk_index: usize, old_status: ReviewStatus) {
+        let old_comment = self.diff.files.get(file_index)
+            .and_then(|f| f.hunks.get(hunk_index))
+            .and_then(|h| h.comment.clone());
         self.undo_stack.push(UndoEntry {
             file_index,
             hunk_index,
             old_status,
+            old_comment,
         });
     }
 
@@ -171,6 +194,7 @@ impl AppState {
                 && let Some(hunk) = file.hunks.get_mut(entry.hunk_index)
             {
                 hunk.status = entry.old_status;
+                hunk.comment = entry.old_comment;
             }
             self.file_index = entry.file_index;
             self.hunk_index = entry.hunk_index;
@@ -265,12 +289,15 @@ impl AppState {
             None => return 0,
         };
         let mut offset = 0;
-        for (hi, _) in file.hunks.iter().enumerate() {
+        for (hi, hunk) in file.hunks.iter().enumerate() {
             if hi == self.hunk_index {
                 return offset;
             }
             // All non-current hunks are collapsed (1 line header only)
             offset += 1;
+            if hunk.comment.is_some() {
+                offset += 1;
+            }
         }
         offset
     }
@@ -282,10 +309,12 @@ impl AppState {
         };
         let mut height = 0;
         for (hi, hunk) in file.hunks.iter().enumerate() {
+            height += 1; // header
+            if hunk.comment.is_some() {
+                height += 1; // comment line
+            }
             if hi == self.hunk_index {
-                height += 1 + hunk.lines.len();
-            } else {
-                height += 1;
+                height += hunk.lines.len();
             }
         }
         height
@@ -293,7 +322,14 @@ impl AppState {
 
     pub(super) fn ensure_visible(&mut self) {
         let offset = self.current_hunk_line_offset();
-        let current_hunk_height = self.current_hunk().map_or(1, |h| 1 + h.lines.len());
+        let current_hunk_height = self.current_hunk().map_or(1, |h| {
+            let mut h_height = 1; // header
+            if h.comment.is_some() {
+                h_height += 1; // comment
+            }
+            h_height += h.lines.len(); // diff lines
+            h_height
+        });
 
         // If current hunk starts above viewport, scroll up
         if offset < self.viewport_offset {
@@ -394,6 +430,18 @@ impl AppState {
         self.search_index = None;
     }
 
+    pub(super) fn set_current_comment(&mut self, comment: String) {
+        if let Some(hunk) = self.current_hunk() {
+            let old_status = hunk.status;
+            let fi = self.file_index;
+            let hi = self.hunk_index;
+            self.push_undo(fi, hi, old_status);
+        }
+        if let Some(hunk) = self.current_hunk_mut() {
+            hunk.comment = if comment.is_empty() { None } else { Some(comment) };
+        }
+    }
+
     pub(super) fn flat_hunk_index(&self) -> usize {
         let mut index = 0;
         for (fi, file) in self.diff.files.iter().enumerate() {
@@ -405,6 +453,41 @@ impl AppState {
             }
         }
         index
+    }
+
+    pub(super) fn stats_cursor_up(&mut self) {
+        if self.stats_cursor > 0 {
+            self.stats_cursor -= 1;
+        } else if !self.diff.files.is_empty() {
+            self.stats_cursor = self.diff.files.len() - 1;
+        }
+    }
+
+    pub(super) fn stats_cursor_down(&mut self) {
+        if !self.diff.files.is_empty() {
+            self.stats_cursor = (self.stats_cursor + 1) % self.diff.files.len();
+        }
+    }
+
+    pub(super) fn stats_navigate_to_cursor(&mut self) {
+        if self.stats_cursor < self.diff.files.len() {
+            self.file_index = self.stats_cursor;
+            self.hunk_index = 0;
+            self.viewport_offset = 0;
+            self.mode = AppMode::Normal;
+            self.ensure_visible();
+        }
+    }
+
+    /// Map row to file index for mouse clicks in file tree
+    pub(super) fn row_to_file_index(&self, row: u16) -> Option<usize> {
+        // File tree starts at row 0 (after borders)
+        let file_idx = row as usize;
+        if file_idx < self.diff.files.len() {
+            Some(file_idx)
+        } else {
+            None
+        }
     }
 }
 
@@ -422,6 +505,7 @@ mod tests {
             new_count: 1,
             lines: vec![DiffLine::Context("x".to_string())],
             status,
+            comment: None,
         }
     }
 
@@ -585,6 +669,7 @@ mod tests {
             new_count: 1,
             lines: (0..n).map(|i| DiffLine::Context(format!("line{}", i))).collect(),
             status,
+            comment: None,
         }
     }
 
@@ -751,6 +836,7 @@ mod tests {
                 DiffLine::Removed("baz qux".to_string()),
             ],
             status: ReviewStatus::Pending,
+            comment: None,
         };
         let hunk1 = Hunk {
             header: "@@ -10,2 +10,2 @@".to_string(),
@@ -760,6 +846,7 @@ mod tests {
                 DiffLine::Added("world peace".to_string()),
             ],
             status: ReviewStatus::Pending,
+            comment: None,
         };
         let file0 = make_file("a.rs", vec![hunk0, hunk1]);
         let file1 = make_file("b.rs", vec![Hunk {
@@ -767,6 +854,7 @@ mod tests {
             old_start: 1, old_count: 1, new_start: 1, new_count: 1,
             lines: vec![DiffLine::Context("hello b".to_string())],
             status: ReviewStatus::Pending,
+            comment: None,
         }]);
         make_state(vec![file0, file1])
     }
@@ -847,5 +935,152 @@ mod tests {
         state.goto_match(2);
         assert_eq!(state.file_index, 1);
         assert_eq!(state.hunk_index, 0);
+    }
+
+    // --- Stats overlay tests ---
+
+    #[test]
+    fn test_stats_cursor_navigation() {
+        let mut state = make_state(vec![
+            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)]),
+            make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
+            make_file("c.rs", vec![make_hunk(ReviewStatus::Pending)]),
+        ]);
+        assert_eq!(state.stats_cursor, 0);
+
+        state.stats_cursor_down();
+        assert_eq!(state.stats_cursor, 1);
+
+        state.stats_cursor_down();
+        assert_eq!(state.stats_cursor, 2);
+
+        // Wrap around
+        state.stats_cursor_down();
+        assert_eq!(state.stats_cursor, 0);
+
+        // Up wraps backward
+        state.stats_cursor_up();
+        assert_eq!(state.stats_cursor, 2);
+
+        state.stats_cursor_up();
+        assert_eq!(state.stats_cursor, 1);
+    }
+
+    #[test]
+    fn test_stats_cursor_enter() {
+        let mut state = make_state(vec![
+            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)]),
+            make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
+            make_file("c.rs", vec![make_hunk(ReviewStatus::Pending)]),
+        ]);
+        state.file_index = 1;
+        state.hunk_index = 0;
+        state.mode = AppMode::Stats;
+        state.stats_cursor = 2;
+
+        state.stats_navigate_to_cursor();
+
+        assert_eq!(state.file_index, 2);
+        assert_eq!(state.hunk_index, 0);
+        assert_eq!(state.mode, AppMode::Normal);
+        assert_eq!(state.viewport_offset, 0);
+    }
+
+    #[test]
+    fn test_diff_view_mode_default() {
+        let state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        assert_eq!(state.diff_view_mode, DiffViewMode::Unified);
+    }
+
+    // --- Mouse support tests ---
+
+    #[test]
+    fn test_mouse_default_off() {
+        let state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        assert!(!state.show_mouse);
+    }
+
+    #[test]
+    fn test_mouse_file_tree_coordinate_mapping() {
+        let state = make_state(vec![
+            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)]),
+            make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
+            make_file("c.rs", vec![make_hunk(ReviewStatus::Pending)]),
+        ]);
+
+        // Row 0 maps to file 0
+        assert_eq!(state.row_to_file_index(0), Some(0));
+        // Row 1 maps to file 1
+        assert_eq!(state.row_to_file_index(1), Some(1));
+        // Row 2 maps to file 2
+        assert_eq!(state.row_to_file_index(2), Some(2));
+        // Row 3 is out of bounds
+        assert_eq!(state.row_to_file_index(3), None);
+    }
+
+    #[test]
+    fn test_scroll_via_mouse() {
+        let mut state = make_state(vec![make_file("a.rs", vec![
+            make_hunk_with_lines(20, ReviewStatus::Pending),
+        ])]);
+        state.viewport_height = 10;
+        state.viewport_offset = 5;
+
+        // Scroll up 3 lines
+        state.scroll_up(3);
+        assert_eq!(state.viewport_offset, 2);
+
+        // Scroll down 3 lines
+        state.scroll_down(3);
+        assert_eq!(state.viewport_offset, 5);
+
+        // Scroll up from 0 should not underflow
+        state.viewport_offset = 0;
+        state.scroll_up(3);
+        assert_eq!(state.viewport_offset, 0);
+    }
+
+    // --- Comment tests ---
+
+    #[test]
+    fn test_undo_restores_comment() {
+        let mut state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        state.set_current_comment("old comment".to_string());
+        assert_eq!(state.current_hunk().unwrap().comment, Some("old comment".to_string()));
+
+        state.set_current_comment("new comment".to_string());
+        assert_eq!(state.current_hunk().unwrap().comment, Some("new comment".to_string()));
+
+        state.undo();
+        assert_eq!(state.current_hunk().unwrap().comment, Some("old comment".to_string()));
+
+        state.undo();
+        assert_eq!(state.current_hunk().unwrap().comment, None);
+    }
+
+    #[test]
+    fn test_comment_empty_clears() {
+        let mut state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        state.set_current_comment("comment".to_string());
+        assert!(state.current_hunk().unwrap().comment.is_some());
+
+        state.set_current_comment("".to_string());
+        assert!(state.current_hunk().unwrap().comment.is_none());
+    }
+
+    #[test]
+    fn test_virtual_doc_height_with_comment() {
+        let mut state = make_state(vec![make_file("a.rs", vec![
+            make_hunk_with_lines(5, ReviewStatus::Pending),
+            make_hunk_with_lines(3, ReviewStatus::Pending),
+        ])]);
+        state.hunk_index = 0;
+
+        // No comments: hunk0 (1+5) + hunk1 (1) = 7
+        assert_eq!(state.virtual_doc_height(), 7);
+
+        // Add comment to hunk1: hunk0 (1+5) + hunk1 (1+1) = 8
+        state.diff.files[0].hunks[1].comment = Some("test".to_string());
+        assert_eq!(state.virtual_doc_height(), 8);
     }
 }

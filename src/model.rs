@@ -29,6 +29,7 @@ pub struct Hunk {
     pub new_count: u32,
     pub lines: Vec<DiffLine>,
     pub status: ReviewStatus,
+    pub comment: Option<String>,
 }
 
 /// 파일 하나의 diff
@@ -103,6 +104,7 @@ mod tests {
             new_count: 1,
             lines,
             status,
+            comment: None,
         }
     }
 

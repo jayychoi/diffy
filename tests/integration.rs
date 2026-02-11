@@ -130,3 +130,24 @@ fn test_empty_diff_pipeline() {
     assert!(!has_output);
     assert!(output.is_empty());
 }
+
+#[test]
+fn test_json_comment_in_output() {
+    let input = indoc! {"
+        --- a/file.rs
+        +++ b/file.rs
+        @@ -1,2 +1,2 @@
+         context
+        -old
+        +new
+    "};
+    let mut diff = parse_diff(input).unwrap();
+    diff.files[0].hunks[0].status = ReviewStatus::Rejected;
+    diff.files[0].hunks[0].comment = Some("needs improvement".to_string());
+
+    let mut buf = Vec::new();
+    write_json(&diff, &mut buf).unwrap();
+    let json: Value = serde_json::from_slice(&buf).unwrap();
+
+    assert_eq!(json["files"][0]["hunks"][0]["comment"], "needs improvement");
+}

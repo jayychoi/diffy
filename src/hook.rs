@@ -30,6 +30,9 @@ pub fn write_feedback(diff: &Diff, writer: &mut impl Write) -> Result<bool> {
             hunk.new_start,
             hunk.new_start + hunk.new_count.saturating_sub(1),
         )?;
+        if let Some(comment) = &hunk.comment {
+            writeln!(writer, "  comment: {}", comment)?;
+        }
     }
 
     writeln!(writer, "\nplease fix the rejected hunks and try again.")?;
@@ -50,6 +53,7 @@ mod tests {
             new_count,
             lines: vec![DiffLine::Added("test".to_string())],
             status,
+            comment: None,
         }
     }
 
