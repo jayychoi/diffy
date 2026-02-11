@@ -3,7 +3,7 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "diffy", about = "Interactive diff reviewer for Claude Code")]
+#[command(name = "diffy", version, about = "Interactive diff reviewer for Claude Code")]
 pub struct Cli {
     /// Diff range (mutually exclusive)
     #[command(flatten)]

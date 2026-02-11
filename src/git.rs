@@ -32,6 +32,16 @@ pub fn repo_root() -> Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
 
+pub fn has_commits() -> bool {
+    Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 pub fn git_diff(mode: &DiffMode, path: Option<&str>) -> Result<String> {
     let mut cmd = Command::new("git");
     cmd.arg("diff");
@@ -78,5 +88,11 @@ mod tests {
     fn test_git_diff_staged() {
         let result = git_diff(&DiffMode::Staged, None);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_has_commits() {
+        // This project has commits, so should be true
+        assert!(has_commits());
     }
 }

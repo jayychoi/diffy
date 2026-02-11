@@ -47,7 +47,7 @@ fn run_pipe_mode(cli: &Cli) -> Result<i32> {
     let diff = parse::parse_diff(&input)?;
 
     if diff.files.is_empty() {
-        eprintln!("[diffy] 변경사항이 없습니다.");
+        eprintln!("[diffy] No changes to review.");
         return Ok(0);
     }
 
@@ -60,7 +60,12 @@ fn run_pipe_mode(cli: &Cli) -> Result<i32> {
 /// CLI 모드: diffy --staged / diffy --head / diffy --ref REF
 fn run_cli_mode(cli: &Cli) -> Result<i32> {
     if !git::is_git_repo() {
-        eprintln!("[diffy] git 저장소가 아닙니다.");
+        eprintln!("[diffy] Not a git repository.");
+        return Ok(1);
+    }
+
+    if !git::has_commits() {
+        eprintln!("[diffy] No commits yet. Create an initial commit first.");
         return Ok(1);
     }
 
@@ -68,20 +73,20 @@ fn run_cli_mode(cli: &Cli) -> Result<i32> {
     let diff_text = git::git_diff(&mode, cli.path.as_deref())?;
 
     if diff_text.is_empty() {
-        eprintln!("[diffy] 변경사항이 없습니다.");
+        eprintln!("[diffy] No changes to review.");
         return Ok(0);
     }
 
     let diff = parse::parse_diff(&diff_text)?;
 
     if diff.files.is_empty() {
-        eprintln!("[diffy] 변경사항이 없습니다.");
+        eprintln!("[diffy] No changes to review.");
         return Ok(0);
     }
 
     let total_hunks: usize = diff.files.iter().map(|f| f.hunks.len()).sum();
 
-    // --apply: 리뷰 전 백업
+    // --apply: backup before review
     if cli.apply {
         revert::backup()?;
     }
