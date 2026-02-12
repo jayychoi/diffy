@@ -1,13 +1,16 @@
 {
   "name": "diffy",
-  "description": "TUI diff reviewer for AI-generated code changes",
-  "version": "0.2.0",
-  "hooks": {
-    "Stop": [
-      {
-        "command": "bash plugin/hooks/stop.sh",
-        "description": "Review code changes before Claude stops"
-      }
-    ]
-  }
+  "version": "0.3.0",
+  "description": "Interactive TUI diff reviewer for Claude Code — accept/reject hunks with structured feedback",
+  "author": {
+    "name": "Jay-young Choi",
+    "url": "https://github.com/jayychoi/diffy"
+  },
+  "homepage": "https://github.com/jayychoi/diffy",
+  "repository": "https://github.com/jayychoi/diffy",
+  "license": "MIT",
+  "keywords": ["diff", "review", "tui", "feedback", "rust"],
+  "commands": "./commands/",
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
 }
