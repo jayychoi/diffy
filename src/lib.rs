@@ -1,6 +1,7 @@
 //! diffy-tui — 인터랙티브 diff 리뷰어 (라이브러리)
 
 pub mod cli;
+pub mod config;
 pub mod git;
 pub mod hook;
 pub mod model;

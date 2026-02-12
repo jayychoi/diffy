@@ -1,5 +1,6 @@
 //! App state
 
+use crate::config::{Config, ViewMode};
 use crate::model::{Diff, DiffLine, FileDiff, Hunk, ReviewStatus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,7 +56,7 @@ pub(super) struct AppState {
 }
 
 impl AppState {
-    pub(super) fn new(diff: Diff) -> Self {
+    pub(super) fn new(diff: Diff, config: &Config) -> Self {
         Self {
             diff,
             file_index: 0,
@@ -65,14 +66,17 @@ impl AppState {
             undo_stack: Vec::new(),
             viewport_offset: 0,
             viewport_height: 24,
-            show_file_tree: true,
+            show_file_tree: config.defaults.file_tree,
             search_query: String::new(),
             search_matches: Vec::new(),
             search_index: None,
             stats_cursor: 0,
-            show_mouse: false,
-            show_highlight: false,
-            diff_view_mode: DiffViewMode::Unified,
+            show_mouse: config.defaults.mouse,
+            show_highlight: config.defaults.highlight,
+            diff_view_mode: match config.defaults.view {
+                ViewMode::Unified => DiffViewMode::Unified,
+                ViewMode::SideBySide => DiffViewMode::SideBySide,
+            },
             comment_input: String::new(),
         }
     }
@@ -534,7 +538,7 @@ mod tests {
     }
 
     fn make_state(files: Vec<FileDiff>) -> AppState {
-        AppState::new(Diff { files })
+        AppState::new(Diff { files }, &Config::default())
     }
 
     // --- Undo tests ---

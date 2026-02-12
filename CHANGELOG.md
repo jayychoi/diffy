@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-12
+
+### Added
+
+- Configuration file support (`~/.config/diffy/config.toml`) with XDG base directory
+- Configurable defaults: syntax highlighting, mouse, view mode, file tree
+- Enhanced hook feedback with ```diff code blocks and 10KB truncation
+
+### Changed
+
+- Replaced `libc::isatty` with `std::io::IsTerminal` (removed libc dependency)
+- Fixed stop.sh hook to use unstaged changes (removed incorrect `--staged` flag)
+
+### Removed
+
+- `libc` dependency (replaced with std library)
+
 ## [0.2.0] - 2025-02-12
 
 ### Added
@@ -39,5 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pipe mode: `git diff | diffy | git apply`
 - Diff output writer
 
+[0.3.0]: https://github.com/jaykang-heo/diffy/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jaykang-heo/diffy/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jaykang-heo/diffy/releases/tag/v0.1.0

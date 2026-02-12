@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use diffy_tui::cli::Cli;
-use diffy_tui::{git, hook, model, output, parse, revert, tty, tui};
+use diffy_tui::{config, git, hook, model, output, parse, revert, tty, tui};
 
 fn run() -> Result<i32> {
     let cli = Cli::parse();
@@ -43,7 +43,8 @@ fn run_pipe_mode(cli: &Cli) -> Result<i32> {
     }
 
     let total_hunks: usize = diff.files.iter().map(|f| f.hunks.len()).sum();
-    let reviewed_diff = tui::run(diff)?;
+    let config = config::load();
+    let reviewed_diff = tui::run(diff, &config)?;
 
     write_output(&reviewed_diff, cli, total_hunks)
 }
@@ -82,7 +83,8 @@ fn run_cli_mode(cli: &Cli) -> Result<i32> {
         revert::backup()?;
     }
 
-    let reviewed_diff = tui::run(diff)?;
+    let config = config::load();
+    let reviewed_diff = tui::run(diff, &config)?;
 
     // --apply: rejected 헌크 되돌리기
     if cli.apply {

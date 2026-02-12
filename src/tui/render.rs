@@ -845,6 +845,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use crate::model::{Diff, DiffLine, FileDiff, Hunk};
 
     fn make_hunk_with_lines(
@@ -878,7 +879,7 @@ mod tests {
             hunks,
             is_binary: false,
         };
-        AppState::new(Diff { files: vec![file] })
+        AppState::new(Diff { files: vec![file] }, &Config::default())
     }
 
     #[test]

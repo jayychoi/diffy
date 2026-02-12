@@ -5,6 +5,7 @@ mod input;
 mod render;
 mod state;
 
+use crate::config::Config;
 use crate::model::Diff;
 use anyhow::Result;
 use crossterm::{
@@ -29,7 +30,7 @@ impl Drop for CleanupGuard {
 }
 
 /// Run the TUI and return the reviewed diff
-pub fn run(diff: Diff) -> Result<Diff> {
+pub fn run(diff: Diff, config: &Config) -> Result<Diff> {
     let mut tty_write = OpenOptions::new().write(true).open("/dev/tty")?;
 
     crossterm::terminal::enable_raw_mode()?;
@@ -41,7 +42,7 @@ pub fn run(diff: Diff) -> Result<Diff> {
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
 
-    let mut state = AppState::new(diff);
+    let mut state = AppState::new(diff, config);
 
     let result = run_loop(&mut terminal, &mut state);
 

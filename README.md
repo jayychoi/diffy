@@ -124,7 +124,7 @@ Add this to your `.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "diffy --staged --hook-mode --apply"
+            "command": "diffy --hook-mode --apply"
           }
         ]
       }
@@ -136,8 +136,8 @@ Add this to your `.claude/settings.json`:
 ### How it works
 
 1. **Claude Code stops** after making changes (e.g., implementing a feature)
-2. **Hook triggers** — The stop hook automatically runs `diffy --staged --hook-mode --apply`
-3. **You review** — The TUI opens and you review each hunk (accept/reject)
+2. **Hook triggers** — The stop hook automatically runs `diffy --hook-mode --apply`
+3. **You review** — The TUI opens and you review each hunk (accept/reject) of unstaged changes
 4. **Rejected hunks are reverted** — Changes you reject are automatically removed
 5. **Feedback to Claude** — Structured feedback is sent to Claude via stderr:
    ```
@@ -233,7 +233,17 @@ Without diffy, you'd need to manually revert Claude's unwanted changes or explai
 
 ## Configuration
 
-Diffy currently has no configuration file. All behavior is controlled via command-line flags.
+Create `~/.config/diffy/config.toml` (or `$XDG_CONFIG_HOME/diffy/config.toml`) to set defaults:
+
+```toml
+[defaults]
+highlight = true       # syntax highlighting (default: false)
+mouse = true           # mouse support (default: false)
+view = "side-by-side"  # "unified" (default) or "side-by-side"
+file_tree = true       # show file tree sidebar (default: true)
+```
+
+All fields are optional — missing fields use defaults. Command-line flags and keyboard shortcuts override config values at runtime.
 
 ## Advanced Usage
 

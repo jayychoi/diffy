@@ -269,6 +269,7 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use crate::model::{Diff, DiffLine, FileDiff, Hunk, ReviewStatus};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -317,7 +318,7 @@ mod tests {
                 make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
             ],
         };
-        AppState::new(diff)
+        AppState::new(diff, &Config::default())
     }
 
     // --- Normal mode key mapping tests ---
