@@ -63,7 +63,7 @@ pub fn parse_diff(input: &str) -> Result<Diff> {
         let mut hunks = Vec::new();
         while i < lines.len() && lines[i].starts_with("@@") {
             let (hunk, next_i) = parse_hunk(&lines, i);
-            hunks.push(hunk);
+            hunks.extend(split_hunk_on_context(&hunk));
             i = next_i;
         }
 
@@ -78,6 +78,160 @@ pub fn parse_diff(input: &str) -> Result<Diff> {
     }
 
     Ok(Diff { files })
+}
+
+/// 헌크를 변경 그룹별로 분할
+///
+/// 하나의 헌크에 여러 변경 그룹(Added/Removed 라인)이 있고 그 사이에
+/// context 라인만 존재하는 경우, 각 변경 그룹을 별도 헌크로 분할한다.
+/// 각 sub-hunk는 최대 3줄의 앞뒤 context를 포함한다.
+fn split_hunk_on_context(hunk: &Hunk) -> Vec<Hunk> {
+    // 변경 그룹 식별: (start_idx, end_idx) 튜플의 벡터
+    let mut groups: Vec<(usize, usize)> = Vec::new();
+    let mut group_start: Option<usize> = None;
+
+    for (i, line) in hunk.lines.iter().enumerate() {
+        match line {
+            DiffLine::Added(_) | DiffLine::Removed(_) => {
+                if group_start.is_none() {
+                    group_start = Some(i);
+                }
+            }
+            DiffLine::NoNewline => {
+                // NoNewline은 앞의 Added/Removed 라인에 붙어있음 - 무시
+            }
+            DiffLine::Context(_) => {
+                if let Some(start) = group_start {
+                    groups.push((start, i - 1));
+                    group_start = None;
+                }
+            }
+        }
+    }
+
+    // 마지막 그룹이 열려있으면 닫기
+    if let Some(start) = group_start {
+        groups.push((start, hunk.lines.len() - 1));
+    }
+
+    // 변경 그룹이 1개 이하면 분할하지 않음
+    if groups.len() <= 1 {
+        return vec![hunk.clone()];
+    }
+
+    // 각 그룹을 별도 헌크로 분할
+    let mut result = Vec::new();
+    const CONTEXT_SIZE: usize = 3;
+
+    for (group_start, group_end) in groups {
+        // 앞 context 수집 (최대 3줄)
+        let context_before_start = group_start.saturating_sub(CONTEXT_SIZE);
+        let mut context_before = Vec::new();
+        for i in context_before_start..group_start {
+            if matches!(hunk.lines[i], DiffLine::Context(_)) {
+                context_before.push(hunk.lines[i].clone());
+            }
+        }
+
+        // 변경 라인 수집 (NoNewline 포함)
+        let mut change_lines = Vec::new();
+        for i in group_start..=group_end {
+            change_lines.push(hunk.lines[i].clone());
+        }
+        // 변경 그룹 바로 뒤의 NoNewline도 포함
+        if group_end + 1 < hunk.lines.len()
+            && matches!(hunk.lines[group_end + 1], DiffLine::NoNewline)
+        {
+            change_lines.push(hunk.lines[group_end + 1].clone());
+        }
+
+        // 뒤 context 수집 (최대 3줄)
+        let context_after_start = group_end + 1;
+        let context_after_start = if context_after_start < hunk.lines.len()
+            && matches!(hunk.lines[context_after_start], DiffLine::NoNewline)
+        {
+            context_after_start + 1
+        } else {
+            context_after_start
+        };
+        let context_after_end = (context_after_start + CONTEXT_SIZE).min(hunk.lines.len());
+        let mut context_after = Vec::new();
+        for i in context_after_start..context_after_end {
+            if matches!(hunk.lines[i], DiffLine::Context(_)) {
+                context_after.push(hunk.lines[i].clone());
+            }
+        }
+
+        // 새 헌크의 lines 구성
+        let mut new_lines = Vec::new();
+        new_lines.extend(context_before.clone());
+        new_lines.extend(change_lines.clone());
+        new_lines.extend(context_after.clone());
+
+        // 라인 번호 계산
+        // context_before_start부터 시작해서 old/new 라인 번호를 추적
+        let mut old_line = hunk.old_start;
+        let mut new_line = hunk.new_start;
+
+        // context_before_start까지 진행
+        for i in 0..context_before_start {
+            match &hunk.lines[i] {
+                DiffLine::Context(_) => {
+                    old_line += 1;
+                    new_line += 1;
+                }
+                DiffLine::Added(_) => {
+                    new_line += 1;
+                }
+                DiffLine::Removed(_) => {
+                    old_line += 1;
+                }
+                DiffLine::NoNewline => {}
+            }
+        }
+
+        let new_old_start = old_line;
+        let new_new_start = new_line;
+
+        // new_lines를 순회하며 old_count, new_count 계산
+        let mut new_old_count = 0;
+        let mut new_new_count = 0;
+
+        for line in &new_lines {
+            match line {
+                DiffLine::Context(_) => {
+                    new_old_count += 1;
+                    new_new_count += 1;
+                }
+                DiffLine::Added(_) => {
+                    new_new_count += 1;
+                }
+                DiffLine::Removed(_) => {
+                    new_old_count += 1;
+                }
+                DiffLine::NoNewline => {}
+            }
+        }
+
+        // 새 헤더 생성
+        let new_header = format!(
+            "@@ -{},{} +{},{} @@",
+            new_old_start, new_old_count, new_new_start, new_new_count
+        );
+
+        result.push(Hunk {
+            header: new_header,
+            old_start: new_old_start,
+            old_count: new_old_count,
+            new_start: new_new_start,
+            new_count: new_new_count,
+            lines: new_lines,
+            status: hunk.status,
+            comment: hunk.comment.clone(),
+        });
+    }
+
+    result
 }
 
 /// 바이너리 파일 라인 파싱
@@ -442,5 +596,192 @@ mod tests {
         assert!(matches!(hunk.lines[0], DiffLine::Context(_)));
         assert!(matches!(hunk.lines[1], DiffLine::Context(ref s) if s.is_empty()));
         assert!(matches!(hunk.lines[2], DiffLine::Context(_)));
+    }
+
+    #[test]
+    fn test_split_hunk_single_group() {
+        let input = indoc! {"
+            --- a/file.txt
+            +++ b/file.txt
+            @@ -1,5 +1,4 @@
+             line1
+             line2
+            -deleted line
+             line3
+             line4
+        "};
+
+        let diff = parse_diff(input).unwrap();
+        assert_eq!(diff.files.len(), 1);
+
+        let file = &diff.files[0];
+        // 단일 변경 그룹이므로 분할되지 않음
+        assert_eq!(file.hunks.len(), 1);
+
+        let hunk = &file.hunks[0];
+        assert_eq!(hunk.lines.len(), 5);
+    }
+
+    #[test]
+    fn test_split_hunk_two_groups() {
+        let input = indoc! {"
+            --- a/file.txt
+            +++ b/file.txt
+            @@ -20,15 +20,13 @@
+             context line 20
+             context line 21
+             context line 22
+             context line 23
+             context line 24
+            -deleted line 25
+             context line 26
+             context line 27
+             context line 28
+             context line 29
+             context line 30
+            -deleted line 31
+             context line 32
+             context line 33
+             context line 34
+        "};
+
+        let diff = parse_diff(input).unwrap();
+        assert_eq!(diff.files.len(), 1);
+
+        let file = &diff.files[0];
+        // 2개의 변경 그룹으로 분할되어야 함
+        assert_eq!(file.hunks.len(), 2);
+
+        // 첫 번째 헌크: line 25 삭제
+        let hunk1 = &file.hunks[0];
+        assert_eq!(hunk1.old_start, 22);
+        assert_eq!(hunk1.new_start, 22);
+        // 3 context before + 1 removed + 3 context after
+        assert_eq!(hunk1.lines.len(), 7);
+        assert!(matches!(hunk1.lines[3], DiffLine::Removed(_)));
+
+        // 두 번째 헌크: line 31 삭제
+        let hunk2 = &file.hunks[1];
+        assert_eq!(hunk2.old_start, 28);
+        assert_eq!(hunk2.new_start, 27);
+        // 3 context before + 1 removed + 3 context after
+        assert_eq!(hunk2.lines.len(), 7);
+        assert!(matches!(hunk2.lines[3], DiffLine::Removed(_)));
+    }
+
+    #[test]
+    fn test_split_hunk_three_groups() {
+        let input = indoc! {"
+            --- a/file.txt
+            +++ b/file.txt
+            @@ -1,20 +1,17 @@
+             line1
+             line2
+            -deleted1
+             line3
+             line4
+             line5
+             line6
+            +added1
+             line7
+             line8
+             line9
+             line10
+            -deleted2
+             line11
+             line12
+             line13
+        "};
+
+        let diff = parse_diff(input).unwrap();
+        assert_eq!(diff.files.len(), 1);
+
+        let file = &diff.files[0];
+        // 3개의 변경 그룹으로 분할되어야 함
+        assert_eq!(file.hunks.len(), 3);
+
+        // 첫 번째 헌크: deleted1
+        let hunk1 = &file.hunks[0];
+        assert!(matches!(hunk1.lines.iter().find(|l| matches!(l, DiffLine::Removed(_))), Some(_)));
+
+        // 두 번째 헌크: added1
+        let hunk2 = &file.hunks[1];
+        assert!(matches!(hunk2.lines.iter().find(|l| matches!(l, DiffLine::Added(_))), Some(_)));
+
+        // 세 번째 헌크: deleted2
+        let hunk3 = &file.hunks[2];
+        assert!(matches!(hunk3.lines.iter().find(|l| matches!(l, DiffLine::Removed(_))), Some(_)));
+    }
+
+    #[test]
+    fn test_split_hunk_no_newline() {
+        let input = indoc! {"
+            --- a/file.txt
+            +++ b/file.txt
+            @@ -1,10 +1,9 @@
+             line1
+             line2
+            -deleted1
+            \\ No newline at end of file
+             line3
+             line4
+             line5
+             line6
+            -deleted2
+             line7
+        "};
+
+        let diff = parse_diff(input).unwrap();
+        assert_eq!(diff.files.len(), 1);
+
+        let file = &diff.files[0];
+        // 2개의 변경 그룹으로 분할
+        assert_eq!(file.hunks.len(), 2);
+
+        // 첫 번째 헌크: deleted1 + NoNewline
+        let hunk1 = &file.hunks[0];
+        // NoNewline이 변경 그룹에 포함되어야 함
+        assert!(hunk1.lines.iter().any(|l| matches!(l, DiffLine::NoNewline)));
+        assert!(hunk1.lines.iter().any(|l| matches!(l, DiffLine::Removed(_))));
+
+        // 두 번째 헌크: deleted2
+        let hunk2 = &file.hunks[1];
+        assert!(hunk2.lines.iter().any(|l| matches!(l, DiffLine::Removed(_))));
+    }
+
+    #[test]
+    fn test_parse_diff_splits_hunks() {
+        // 통합 테스트: parse_diff가 split_hunk_on_context를 올바르게 호출하는지 확인
+        let input = indoc! {"
+            diff --git a/test.txt b/test.txt
+            --- a/test.txt
+            +++ b/test.txt
+            @@ -10,12 +10,10 @@
+             context10
+             context11
+            +added12
+             context13
+             context14
+             context15
+             context16
+            -removed17
+             context18
+             context19
+        "};
+
+        let diff = parse_diff(input).unwrap();
+        assert_eq!(diff.files.len(), 1);
+
+        let file = &diff.files[0];
+        // 2개의 헌크로 분할되어야 함
+        assert_eq!(file.hunks.len(), 2);
+
+        // 각 헌크가 올바른 라인 번호를 가지는지 확인
+        assert!(file.hunks[0].old_start >= 10);
+        assert!(file.hunks[1].old_start >= 10);
+
+        // 각 헌크가 변경 사항을 포함하는지 확인
+        assert!(file.hunks[0].lines.iter().any(|l| matches!(l, DiffLine::Added(_))));
+        assert!(file.hunks[1].lines.iter().any(|l| matches!(l, DiffLine::Removed(_))));
     }
 }
