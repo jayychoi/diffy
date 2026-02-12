@@ -70,6 +70,15 @@ pub fn git_diff(mode: &DiffMode, path: Option<&str>) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?)
 }
 
+/// Read file content from working tree
+pub fn read_working_file(path: &str) -> Result<Vec<String>> {
+    let root = repo_root()?;
+    let full_path = root.join(path);
+    let content = std::fs::read_to_string(&full_path)
+        .context(format!("failed to read {}", full_path.display()))?;
+    Ok(content.lines().map(|l| l.to_string()).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

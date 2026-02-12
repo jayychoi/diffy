@@ -15,6 +15,7 @@ use crossterm::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use std::fs::OpenOptions;
+use std::time::Duration;
 
 use state::AppState;
 
@@ -34,7 +35,11 @@ pub fn run(diff: Diff, config: &Config) -> Result<Diff> {
     let mut tty_write = OpenOptions::new().write(true).open("/dev/tty")?;
 
     crossterm::terminal::enable_raw_mode()?;
-    execute!(tty_write, terminal::EnterAlternateScreen)?;
+    execute!(
+        tty_write,
+        terminal::EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture
+    )?;
 
     let _guard = CleanupGuard;
 
@@ -47,7 +52,11 @@ pub fn run(diff: Diff, config: &Config) -> Result<Diff> {
     let result = run_loop(&mut terminal, &mut state);
 
     let tty_write = terminal.backend_mut();
-    execute!(tty_write, terminal::LeaveAlternateScreen)?;
+    execute!(
+        tty_write,
+        crossterm::event::DisableMouseCapture,
+        terminal::LeaveAlternateScreen
+    )?;
     crossterm::terminal::disable_raw_mode()?;
 
     result?;
@@ -59,24 +68,11 @@ fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<std::fs::File>>,
     state: &mut AppState,
 ) -> Result<()> {
-    let mut prev_mouse_state = false;
-
     loop {
         // Update viewport height from terminal size
         let size = terminal.size()?;
         state.viewport_height = (size.height as usize).saturating_sub(2); // file bar + status bar
         state.ensure_visible();
-
-        // Handle mouse capture toggle
-        if state.show_mouse != prev_mouse_state {
-            let backend = terminal.backend_mut();
-            if state.show_mouse {
-                execute!(backend, crossterm::event::EnableMouseCapture)?;
-            } else {
-                execute!(backend, crossterm::event::DisableMouseCapture)?;
-            }
-            prev_mouse_state = state.show_mouse;
-        }
 
         terminal.draw(|f| render::render(f, state))?;
 
@@ -101,15 +97,30 @@ fn run_loop(
                 }
 
                 let action = input::handle_key(&key_event, state);
-                input::apply_action(action, state);
 
-                // CancelPendingG: re-dispatch the same key in Normal mode
-                if action == input::Action::CancelPendingG {
-                    let action2 = input::handle_key(&key_event, state);
-                    input::apply_action(action2, state);
+                // Smooth scroll animation for PageUp/PageDown
+                if action == input::Action::PageUp || action == input::Action::PageDown {
+                    let total = state.viewport_height / 2;
+                    for _ in 0..total {
+                        if action == input::Action::PageUp {
+                            state.scroll_up(1);
+                        } else {
+                            state.scroll_down(1);
+                        }
+                        terminal.draw(|f| render::render(f, state))?;
+                        std::thread::sleep(Duration::from_millis(8));
+                    }
+                } else {
+                    input::apply_action(action, state);
+
+                    // CancelPendingG: re-dispatch the same key in Normal mode
+                    if action == input::Action::CancelPendingG {
+                        let action2 = input::handle_key(&key_event, state);
+                        input::apply_action(action2, state);
+                    }
                 }
             }
-            Event::Mouse(mouse_event) if state.show_mouse => {
+            Event::Mouse(mouse_event) => {
                 handle_mouse(mouse_event, state);
             }
             _ => {}
@@ -125,26 +136,23 @@ fn run_loop(
 fn handle_mouse(mouse_event: MouseEvent, state: &mut AppState) {
     match mouse_event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            // Check if click is in file tree area (first 30 columns)
-            if state.show_file_tree && mouse_event.column < 30 {
-                // Row 0 is file bar, row 1+ is file tree content
-                // Adjust for file bar (1 line) and border
-                if mouse_event.row > 0 {
-                    let tree_row = mouse_event.row - 1;
-                    if let Some(file_idx) = state.row_to_file_index(tree_row) {
-                        state.file_index = file_idx;
-                        state.hunk_index = 0;
-                        state.viewport_offset = 0;
-                        state.ensure_visible();
-                    }
+            // File tree area: columns 0..60 (with border)
+            // Row 0 = file bar, row 1 = top border, row 2+ = file entries
+            if state.show_file_tree && mouse_event.column < 60 && mouse_event.row >= 2 {
+                let tree_row = mouse_event.row - 2;
+                if let Some(file_idx) = state.row_to_file_index(tree_row) {
+                    state.file_index = file_idx;
+                    state.hunk_index = 0;
+                    state.viewport_offset = 0;
+                    state.ensure_visible();
                 }
             }
         }
         MouseEventKind::ScrollUp => {
-            state.scroll_up(3);
+            state.scroll_up(1);
         }
         MouseEventKind::ScrollDown => {
-            state.scroll_down(3);
+            state.scroll_down(1);
         }
         _ => {}
     }

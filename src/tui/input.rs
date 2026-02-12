@@ -1,6 +1,6 @@
 //! Key input handling
 
-use super::state::{AppMode, AppState};
+use super::state::{AppMode, AppState, Focus};
 use crate::model::ReviewStatus;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -32,13 +32,15 @@ pub(super) enum Action {
     PrevMatch,
     ToggleHelp,
     ToggleStats,
-    ToggleMouse,
     ToggleHighlight,
     ToggleDiffView,
     EnterComment,
     SubmitComment,
     CancelComment,
     CommentBackspace,
+    FocusFileTree,
+    FocusDiffView,
+    ToggleFullFile,
     RequestQuit,
     ConfirmQuit,
     CancelQuit,
@@ -54,6 +56,8 @@ pub(super) fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
                 return match key.code {
                     KeyCode::Char('u') => Action::PageUp,
                     KeyCode::Char('d') => Action::PageDown,
+                    KeyCode::Char('n') => Action::NextFile,
+                    KeyCode::Char('p') => Action::PrevFile,
                     _ => Action::None,
                 };
             }
@@ -88,9 +92,11 @@ pub(super) fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
                 KeyCode::Char('/') => Action::EnterSearch,
                 KeyCode::Char('c') => Action::EnterComment,
                 KeyCode::Char('d') => Action::ToggleDiffView,
+                KeyCode::Char('e') => Action::ToggleFullFile,
                 KeyCode::Char('f') => Action::ToggleFileTree,
-                KeyCode::Char('h') => Action::ToggleHighlight,
-                KeyCode::Char('m') => Action::ToggleMouse,
+                KeyCode::Char('h') | KeyCode::Left => Action::FocusFileTree,
+                KeyCode::Char('l') | KeyCode::Right => Action::FocusDiffView,
+                KeyCode::Char('H') => Action::ToggleHighlight,
                 KeyCode::Char('s') => Action::ToggleStats,
                 KeyCode::Char('?') => Action::ToggleHelp,
                 KeyCode::Char('q') | KeyCode::Esc => Action::RequestQuit,
@@ -137,6 +143,8 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
         Action::NextHunk => {
             if state.mode == AppMode::Stats {
                 state.stats_cursor_down();
+            } else if state.focus == Focus::FileTree {
+                state.next_file();
             } else {
                 state.next_hunk();
             }
@@ -144,6 +152,8 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
         Action::PrevHunk => {
             if state.mode == AppMode::Stats {
                 state.stats_cursor_up();
+            } else if state.focus == Focus::FileTree {
+                state.prev_file();
             } else {
                 state.prev_hunk();
             }
@@ -158,7 +168,13 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
             }
         }
         Action::Reject => state.set_current_status(ReviewStatus::Rejected),
-        Action::Toggle => state.toggle_current_status(),
+        Action::Toggle => {
+            if state.focus == Focus::FileTree {
+                state.focus = Focus::DiffView;
+            } else {
+                state.toggle_current_status();
+            }
+        }
         Action::Undo => state.undo(),
         Action::AcceptAll => state.set_all_status(ReviewStatus::Accepted),
         Action::RejectAll => state.set_all_status(ReviewStatus::Rejected),
@@ -181,6 +197,9 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
         Action::PageDown => state.scroll_down(state.viewport_height / 2),
         Action::ToggleFileTree => {
             state.show_file_tree = !state.show_file_tree;
+            if !state.show_file_tree {
+                state.focus = Focus::DiffView;
+            }
         }
         Action::EnterSearch => {
             state.search_query.clear();
@@ -221,9 +240,6 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
                 state.mode = AppMode::Stats;
             }
         }
-        Action::ToggleMouse => {
-            state.show_mouse = !state.show_mouse;
-        }
         Action::ToggleHighlight => {
             state.show_highlight = !state.show_highlight;
         }
@@ -252,6 +268,19 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
         }
         Action::CommentBackspace => {
             state.comment_input.pop();
+        }
+        Action::FocusFileTree => {
+            if state.show_file_tree {
+                state.focus = Focus::FileTree;
+            }
+        }
+        Action::FocusDiffView => {
+            state.focus = Focus::DiffView;
+        }
+        Action::ToggleFullFile => {
+            state.show_full_file = !state.show_full_file;
+            state.viewport_offset = 0;
+            state.ensure_visible();
         }
         Action::RequestQuit => {
             state.mode = AppMode::ConfirmQuit;
@@ -594,32 +623,123 @@ mod tests {
 
     // --- Mouse support tests ---
 
-    #[test]
-    fn test_key_m_mouse() {
-        let state = state_normal();
-        assert_eq!(
-            handle_key(&key(KeyCode::Char('m')), &state),
-            Action::ToggleMouse
-        );
-    }
 
     #[test]
-    fn test_toggle_mouse_action() {
-        let mut state = state_normal();
-        assert!(!state.show_mouse);
-        apply_action(Action::ToggleMouse, &mut state);
-        assert!(state.show_mouse);
-        apply_action(Action::ToggleMouse, &mut state);
-        assert!(!state.show_mouse);
-    }
-
-    #[test]
-    fn test_key_h_highlight() {
+    fn test_key_h_focus_file_tree() {
         let state = state_normal();
         assert_eq!(
             handle_key(&key(KeyCode::Char('h')), &state),
+            Action::FocusFileTree
+        );
+    }
+
+    #[test]
+    fn test_key_left_focus_file_tree() {
+        let state = state_normal();
+        assert_eq!(
+            handle_key(&key(KeyCode::Left), &state),
+            Action::FocusFileTree
+        );
+    }
+
+    #[test]
+    fn test_key_l_focus_diff_view() {
+        let state = state_normal();
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('l')), &state),
+            Action::FocusDiffView
+        );
+    }
+
+    #[test]
+    fn test_key_right_focus_diff_view() {
+        let state = state_normal();
+        assert_eq!(
+            handle_key(&key(KeyCode::Right), &state),
+            Action::FocusDiffView
+        );
+    }
+
+    #[test]
+    fn test_key_shift_h_highlight() {
+        let state = state_normal();
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('H')), &state),
             Action::ToggleHighlight
         );
+    }
+
+    #[test]
+    fn test_key_e_toggle_full_file() {
+        let state = state_normal();
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('e')), &state),
+            Action::ToggleFullFile
+        );
+    }
+
+    #[test]
+    fn test_focus_file_tree_action() {
+        let mut state = state_normal();
+        assert_eq!(state.focus, Focus::DiffView);
+        apply_action(Action::FocusFileTree, &mut state);
+        assert_eq!(state.focus, Focus::FileTree);
+    }
+
+    #[test]
+    fn test_focus_diff_view_action() {
+        let mut state = state_normal();
+        state.focus = Focus::FileTree;
+        apply_action(Action::FocusDiffView, &mut state);
+        assert_eq!(state.focus, Focus::DiffView);
+    }
+
+    #[test]
+    fn test_focus_file_tree_requires_tree_visible() {
+        let mut state = state_normal();
+        state.show_file_tree = false;
+        apply_action(Action::FocusFileTree, &mut state);
+        // Focus stays on DiffView when tree is hidden
+        assert_eq!(state.focus, Focus::DiffView);
+    }
+
+    #[test]
+    fn test_jk_with_file_tree_focus() {
+        let mut state = state_normal();
+        state.focus = Focus::FileTree;
+        // j/k in file tree focus should navigate files
+        apply_action(Action::NextHunk, &mut state);
+        assert_eq!(state.file_index, 1); // moved to next file
+        apply_action(Action::PrevHunk, &mut state);
+        assert_eq!(state.file_index, 0); // back to first file
+    }
+
+    #[test]
+    fn test_enter_with_file_tree_focus() {
+        let mut state = state_normal();
+        state.focus = Focus::FileTree;
+        apply_action(Action::Toggle, &mut state);
+        // Enter in file tree focus should switch to DiffView
+        assert_eq!(state.focus, Focus::DiffView);
+    }
+
+    #[test]
+    fn test_toggle_file_tree_resets_focus() {
+        let mut state = state_normal();
+        state.focus = Focus::FileTree;
+        apply_action(Action::ToggleFileTree, &mut state);
+        // Hiding file tree should reset focus to DiffView
+        assert_eq!(state.focus, Focus::DiffView);
+    }
+
+    #[test]
+    fn test_toggle_full_file_action() {
+        let mut state = state_normal();
+        assert!(!state.show_full_file);
+        apply_action(Action::ToggleFullFile, &mut state);
+        assert!(state.show_full_file);
+        apply_action(Action::ToggleFullFile, &mut state);
+        assert!(!state.show_full_file);
     }
 
     #[test]

@@ -1,18 +1,21 @@
 //! Widget rendering
 
 use super::highlight;
-use super::state::{AppMode, AppState, DiffViewMode};
+use super::state::{AppMode, AppState, DiffViewMode, Focus};
 use crate::model::{DiffLine, FileReviewSummary, ReviewStatus};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph, Wrap},
 };
 
+/// Focus highlight color (bright green)
+const FOCUS_COLOR: Color = Color::LightGreen;
+
 /// Main render function
-pub(super) fn render(frame: &mut Frame, state: &AppState) {
+pub(super) fn render(frame: &mut Frame, state: &mut AppState) {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -28,7 +31,7 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
         let horizontal = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(30), // file tree
+                Constraint::Length(60), // file tree
                 Constraint::Min(0),     // diff view
             ])
             .split(vertical[1]);
@@ -44,6 +47,10 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
         render_help_overlay(frame, state);
     } else if state.mode == AppMode::Stats {
         render_stats_overlay(frame, state);
+    } else if state.mode == AppMode::CommentEdit {
+        render_comment_overlay(frame, state);
+    } else if state.mode == AppMode::ConfirmQuit {
+        render_quit_overlay(frame);
     }
 }
 
@@ -127,10 +134,16 @@ fn render_file_tree(frame: &mut Frame, state: &AppState, area: Rect) {
         ]));
     }
 
+    let border_style = if state.focus == Focus::FileTree {
+        Style::default().fg(FOCUS_COLOR)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
     let block = Block::default()
-        .borders(Borders::RIGHT)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .title(" Files ")
-        .style(Style::default());
+        .style(border_style);
 
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, area);
@@ -206,8 +219,8 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
             ]));
         }
 
-        // Expand current hunk with line numbers
-        if is_current {
+        // Expand current hunk (or all hunks when show_full_file)
+        if is_current || state.show_full_file {
             let mut old_line = hunk.old_start;
             let mut new_line = hunk.new_start;
 
@@ -256,6 +269,9 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
                         if let Some(bg) = search_bg {
                             gutter_style = gutter_style.bg(bg);
                             text_style = text_style.bg(bg);
+                        } else if is_current {
+                            gutter_style = gutter_style.bg(Color::Rgb(0, 40, 0));
+                            text_style = text_style.bg(Color::Rgb(0, 40, 0));
                         }
                         let mut line_spans = vec![
                             Span::styled(format!("  {} {} ", pad, new_str), gutter_style),
@@ -277,6 +293,9 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
                         if let Some(bg) = search_bg {
                             gutter_style = gutter_style.bg(bg);
                             text_style = text_style.bg(bg);
+                        } else if is_current {
+                            gutter_style = gutter_style.bg(Color::Rgb(60, 0, 0));
+                            text_style = text_style.bg(Color::Rgb(60, 0, 0));
                         }
                         let mut line_spans = vec![
                             Span::styled(format!("  {} {} ", old_str, pad), gutter_style),
@@ -326,6 +345,7 @@ fn flush_sbs_pairs<'a>(
 }
 
 /// Truncate string to max width with ellipsis
+#[allow(dead_code)]
 fn truncate_str(s: &str, max_width: usize) -> String {
     if s.len() <= max_width {
         s.to_string()
@@ -380,8 +400,8 @@ fn render_side_by_side(frame: &mut Frame, state: &AppState, area: Rect) {
             ]));
         }
 
-        // Expand current hunk in side-by-side
-        if is_current {
+        // Expand current hunk in side-by-side (or all when show_full_file)
+        if is_current || state.show_full_file {
             let mut old_line_num = hunk.old_start;
             let mut new_line_num = hunk.new_start;
 
@@ -418,8 +438,8 @@ fn render_side_by_side(frame: &mut Frame, state: &AppState, area: Rect) {
                         old_line_num += 1;
                         new_line_num += 1;
 
-                        let left_truncated = truncate_str(&left, half_width as usize);
-                        let right_truncated = truncate_str(&right, half_width as usize);
+                        let left_truncated = &left;
+                        let right_truncated = &right;
 
                         all_lines.push(Line::from(vec![
                             Span::styled(
@@ -448,17 +468,28 @@ fn render_side_by_side(frame: &mut Frame, state: &AppState, area: Rect) {
                             "     │".to_string()
                         };
 
-                        let left_truncated = truncate_str(&left_str, half_width as usize);
-                        let right_truncated = truncate_str(&right_str, half_width as usize);
+                        let left_truncated = &left_str;
+                        let right_truncated = &right_str;
+
+                        let left_style = if is_current {
+                            Style::default().fg(Color::Red).bg(Color::Rgb(60, 0, 0))
+                        } else {
+                            Style::default().fg(Color::Red)
+                        };
+                        let right_style = if is_current {
+                            Style::default().fg(Color::Green).bg(Color::Rgb(0, 40, 0))
+                        } else {
+                            Style::default().fg(Color::Green)
+                        };
 
                         all_lines.push(Line::from(vec![
                             Span::styled(
                                 format!("{:<w$}", left_truncated, w = half_width as usize),
-                                Style::default().fg(Color::Red),
+                                left_style,
                             ),
                             Span::styled(
                                 format!("{:<w$}", right_truncated, w = half_width as usize),
-                                Style::default().fg(Color::Green),
+                                right_style,
                             ),
                         ]));
                     }
@@ -472,34 +503,66 @@ fn render_side_by_side(frame: &mut Frame, state: &AppState, area: Rect) {
     let end = (start + area.height as usize).min(all_lines.len());
     let visible: Vec<Line> = all_lines[start..end].to_vec();
 
-    let paragraph = Paragraph::new(visible).block(Block::default().borders(Borders::NONE));
+    let paragraph = Paragraph::new(visible).wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
 
 /// Diff view with viewport scrolling
-fn render_diff_view(frame: &mut Frame, state: &AppState, area: Rect) {
+fn render_diff_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
+    let border_style = if state.focus == Focus::DiffView {
+        Style::default().fg(FOCUS_COLOR)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let diff_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(" Diff ")
+        .style(border_style);
+
+    let inner = diff_block.inner(area);
+    state.viewport_height = inner.height as usize;
+    frame.render_widget(diff_block, area);
+
     // Fall back to unified if terminal too narrow
-    let use_side_by_side = state.diff_view_mode == DiffViewMode::SideBySide && area.width >= 100;
+    let use_side_by_side = state.diff_view_mode == DiffViewMode::SideBySide && inner.width >= 100;
 
     if use_side_by_side {
-        render_side_by_side(frame, state, area);
+        render_side_by_side(frame, state, inner);
     } else {
         let all_lines = build_virtual_doc(state);
 
         // Slice to viewport
         let start = state.viewport_offset.min(all_lines.len());
-        let end = (start + area.height as usize).min(all_lines.len());
+        let end = (start + inner.height as usize).min(all_lines.len());
         let visible: Vec<Line> = all_lines[start..end].to_vec();
 
-        let paragraph = Paragraph::new(visible).block(Block::default().borders(Borders::NONE));
-        frame.render_widget(paragraph, area);
+        let paragraph = Paragraph::new(visible).wrap(Wrap { trim: false });
+        frame.render_widget(paragraph, inner);
     }
 }
 
 /// Status bar
 fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
     let text = match state.mode {
-        AppMode::ConfirmQuit => " Quit? Unsaved review will be lost. (y/n)".to_string(),
+        AppMode::ConfirmQuit => {
+            let total = state.total_hunks();
+            let current = state.flat_hunk_index() + 1;
+            let reviewed = state.reviewed_hunks();
+            let accepted = state.accepted_hunks();
+            let rejected = reviewed - accepted;
+            format!(
+                " file {}/{} | hunk {}/{} | reviewed: {}/{} [accepted: {}  rejected: {}]",
+                state.file_index + 1,
+                state.diff.files.len(),
+                current,
+                total,
+                reviewed,
+                total,
+                accepted,
+                rejected,
+            )
+        }
         AppMode::Search => {
             format!(
                 " /{}\u{2588}                              (Enter: search, Esc: cancel)",
@@ -507,9 +570,22 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
             )
         }
         AppMode::CommentEdit => {
+            // Comment input is now shown in the floating overlay
+            let total = state.total_hunks();
+            let current = state.flat_hunk_index() + 1;
+            let reviewed = state.reviewed_hunks();
+            let accepted = state.accepted_hunks();
+            let rejected = reviewed - accepted;
             format!(
-                " comment: {}\u{2588}                    (Enter: save, Esc: cancel)",
-                state.comment_input
+                " file {}/{} | hunk {}/{} | reviewed: {}/{} [accepted: {}  rejected: {}]",
+                state.file_index + 1,
+                state.diff.files.len(),
+                current,
+                total,
+                reviewed,
+                total,
+                accepted,
+                rejected,
             )
         }
         AppMode::PendingG => {
@@ -519,7 +595,7 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
             let accepted = state.accepted_hunks();
             let rejected = reviewed - accepted;
             format!(
-                " file {}/{} | hunk {}/{} | reviewed: {}/{} [a:{} r:{}] | g-",
+                " file {}/{} | hunk {}/{} | reviewed: {}/{} [accepted: {}  rejected: {}] | g-",
                 state.file_index + 1,
                 state.diff.files.len(),
                 current,
@@ -543,7 +619,7 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
                 String::new()
             };
             format!(
-                " file {}/{} | hunk {}/{} | reviewed: {}/{} [a:{} r:{}]{} | j/k a/r ?:help q:quit",
+                " file {}/{} | hunk {}/{} | reviewed: {}/{} [accepted: {}  rejected: {}]{} | move:\u{2190}\u{2191}\u{2193}\u{2192}/hjkl | accept:a reject:r comment:c toggle:space | ?:help q:quit",
                 state.file_index + 1,
                 state.diff.files.len(),
                 current,
@@ -557,14 +633,14 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
         }
     };
 
-    let paragraph =
-        Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let paragraph = Paragraph::new(text).style(Style::default().fg(Color::Cyan));
     frame.render_widget(paragraph, area);
 }
 
 /// Stats overlay
 fn render_stats_overlay(frame: &mut Frame, state: &AppState) {
     let area = centered_rect(60, 70, frame.area());
+    frame.render_widget(Clear, area);
 
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(Span::styled(
@@ -662,7 +738,7 @@ fn render_stats_overlay(frame: &mut Frame, state: &AppState) {
         Span::styled(" Reviewed: ", Style::default().fg(Color::White)),
         Span::styled(
             format!(
-                "{}/{} hunks [a:{} r:{}]",
+                "{}/{} hunks [accepted: {}  rejected: {}]",
                 reviewed, total_hunks, accepted, rejected
             ),
             Style::default().fg(Color::White),
@@ -677,8 +753,9 @@ fn render_stats_overlay(frame: &mut Frame, state: &AppState) {
 
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .title(" Diff Summary ")
-        .style(Style::default().bg(Color::Black));
+        .style(Style::default().fg(FOCUS_COLOR));
 
     let paragraph = Paragraph::new(lines)
         .block(block)
@@ -687,132 +764,202 @@ fn render_stats_overlay(frame: &mut Frame, state: &AppState) {
     frame.render_widget(paragraph, area);
 }
 
-/// Help overlay
-fn render_help_overlay(frame: &mut Frame, _state: &AppState) {
-    let area = centered_rect(60, 70, frame.area());
+/// Comment edit overlay
+fn render_comment_overlay(frame: &mut Frame, state: &AppState) {
+    let area = centered_rect(50, 20, frame.area());
+    frame.render_widget(Clear, area);
 
-    let help_text = vec![
+    let hunk_info = state
+        .current_hunk()
+        .map(|h| h.header.as_str())
+        .unwrap_or("");
+
+    let lines = vec![
+        Line::from(Span::styled(hunk_info, Style::default().fg(Color::Cyan))),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("> ", Style::default().fg(Color::Yellow)),
+            Span::raw(state.comment_input.as_str()),
+            Span::styled("\u{2588}", Style::default().fg(Color::White)),
+        ]),
+    ];
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(" Comment ")
+        .title_bottom(Line::from(" Enter: save  Esc: cancel ").right_aligned())
+        .style(Style::default().fg(FOCUS_COLOR));
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
+}
+
+/// Fixed-size centered rectangle
+fn centered_fixed_rect(width: u16, height: u16, r: Rect) -> Rect {
+    let x = r.x + (r.width.saturating_sub(width)) / 2;
+    let y = r.y + (r.height.saturating_sub(height)) / 2;
+    Rect::new(x, y, width.min(r.width), height.min(r.height))
+}
+
+/// Quit confirmation overlay
+fn render_quit_overlay(frame: &mut Frame) {
+    let area = centered_fixed_rect(44, 7, frame.area());
+    frame.render_widget(Clear, area);
+
+    let lines = vec![
+        Line::from(""),
         Line::from(Span::styled(
-            "Key Bindings",
+            "Unsaved review will be lost.",
             Style::default().fg(Color::Yellow),
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("j/↓       ", Style::default().fg(Color::Cyan)),
-            Span::raw("Next hunk"),
-        ]),
-        Line::from(vec![
-            Span::styled("k/↑       ", Style::default().fg(Color::Cyan)),
-            Span::raw("Previous hunk"),
-        ]),
-        Line::from(vec![
-            Span::styled("n         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Next file"),
-        ]),
-        Line::from(vec![
-            Span::styled("N         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Previous file"),
-        ]),
-        Line::from(vec![
-            Span::styled("gg        ", Style::default().fg(Color::Cyan)),
-            Span::raw("First hunk"),
-        ]),
-        Line::from(vec![
-            Span::styled("G         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Last hunk"),
-        ]),
-        Line::from(vec![
-            Span::styled("Tab       ", Style::default().fg(Color::Cyan)),
-            Span::raw("Next pending hunk"),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("a         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Accept current hunk"),
-        ]),
-        Line::from(vec![
-            Span::styled("r         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Reject current hunk"),
-        ]),
-        Line::from(vec![
-            Span::styled("Space     ", Style::default().fg(Color::Cyan)),
-            Span::raw("Toggle (Pending→Accepted→Rejected)"),
-        ]),
-        Line::from(vec![
-            Span::styled("u         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Undo last action"),
-        ]),
-        Line::from(vec![
-            Span::styled("c         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Add/edit comment on hunk"),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("A         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Accept all hunks"),
-        ]),
-        Line::from(vec![
-            Span::styled("R         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Reject all hunks"),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("d         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Toggle side-by-side view"),
-        ]),
-        Line::from(vec![
-            Span::styled("f         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Toggle file tree"),
-        ]),
-        Line::from(vec![
-            Span::styled("h         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Toggle syntax highlighting"),
-        ]),
-        Line::from(vec![
-            Span::styled("m         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Toggle mouse mode"),
-        ]),
-        Line::from(vec![
-            Span::styled("s         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Diff summary"),
-        ]),
-        Line::from(vec![
-            Span::styled("/         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Search in diff"),
-        ]),
-        Line::from(vec![
-            Span::styled("n/N       ", Style::default().fg(Color::Cyan)),
-            Span::raw("Next/prev match (or file)"),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("PgUp/^U   ", Style::default().fg(Color::Cyan)),
-            Span::raw("Scroll up"),
-        ]),
-        Line::from(vec![
-            Span::styled("PgDn/^D   ", Style::default().fg(Color::Cyan)),
-            Span::raw("Scroll down"),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("?         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Toggle this help"),
-        ]),
-        Line::from(vec![
-            Span::styled("q/Esc     ", Style::default().fg(Color::Cyan)),
-            Span::raw("Quit"),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled(
-            "Press any key to close",
-            Style::default().fg(Color::DarkGray),
         )),
     ];
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Help ")
-        .style(Style::default().bg(Color::Black));
+        .border_type(BorderType::Rounded)
+        .title(" Quit? ")
+        .title_bottom(Line::from(" Enter: yes  Esc: no ").right_aligned())
+        .padding(Padding::new(2, 2, 0, 0))
+        .style(Style::default().fg(FOCUS_COLOR));
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
+}
+
+/// Help overlay
+fn render_help_overlay(frame: &mut Frame, _state: &AppState) {
+    let area = centered_fixed_rect(56, 41, frame.area());
+    frame.render_widget(Clear, area);
+
+    let help_text = vec![
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "j/↓"), Style::default().fg(Color::Cyan)),
+            Span::raw("Next hunk"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "k/↑"), Style::default().fg(Color::Cyan)),
+            Span::raw("Previous hunk"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "n"), Style::default().fg(Color::Cyan)),
+            Span::raw("Next file"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "N"), Style::default().fg(Color::Cyan)),
+            Span::raw("Previous file"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "gg"), Style::default().fg(Color::Cyan)),
+            Span::raw("First hunk"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "G"), Style::default().fg(Color::Cyan)),
+            Span::raw("Last hunk"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "Tab"), Style::default().fg(Color::Cyan)),
+            Span::raw("Next pending hunk"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "a"), Style::default().fg(Color::Cyan)),
+            Span::raw("Accept current hunk"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "r"), Style::default().fg(Color::Cyan)),
+            Span::raw("Reject current hunk"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "Space"), Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle (Pending→Accepted→Rejected)"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "u"), Style::default().fg(Color::Cyan)),
+            Span::raw("Undo last action"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "c"), Style::default().fg(Color::Cyan)),
+            Span::raw("Add/edit comment on hunk"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "A"), Style::default().fg(Color::Cyan)),
+            Span::raw("Accept all hunks"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "R"), Style::default().fg(Color::Cyan)),
+            Span::raw("Reject all hunks"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "h/Left"), Style::default().fg(Color::Cyan)),
+            Span::raw("Focus file tree"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "l/Right"), Style::default().fg(Color::Cyan)),
+            Span::raw("Focus diff view"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "d"), Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle side-by-side view"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "e"), Style::default().fg(Color::Cyan)),
+            Span::raw("Expand all hunks"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "f"), Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle file tree"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "H"), Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle syntax highlighting"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "s"), Style::default().fg(Color::Cyan)),
+            Span::raw("Diff summary"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "/"), Style::default().fg(Color::Cyan)),
+            Span::raw("Search in diff"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "n/N"), Style::default().fg(Color::Cyan)),
+            Span::raw("Next/prev match (or file)"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "PgUp/^U"), Style::default().fg(Color::Cyan)),
+            Span::raw("Scroll up half page"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "PgDn/^D"), Style::default().fg(Color::Cyan)),
+            Span::raw("Scroll down half page"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "?"), Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle this help"),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>10} ", "q/Esc"), Style::default().fg(Color::Cyan)),
+            Span::raw("Quit"),
+        ]),
+    ];
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(" Key Bindings ")
+        .title_bottom(Line::from(" Press any key to close ").right_aligned())
+        .padding(Padding::new(2, 2, 1, 0))
+        .style(Style::default().fg(FOCUS_COLOR));
 
     let paragraph = Paragraph::new(help_text)
         .block(block)

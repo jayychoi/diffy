@@ -2,6 +2,7 @@
 
 use crate::config::{Config, ViewMode};
 use crate::model::{Diff, DiffLine, FileDiff, Hunk, ReviewStatus};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AppMode {
@@ -18,6 +19,12 @@ pub(super) enum AppMode {
 pub(super) enum DiffViewMode {
     Unified,
     SideBySide,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Focus {
+    FileTree,
+    DiffView,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,10 +56,12 @@ pub(super) struct AppState {
     pub(super) search_matches: Vec<SearchMatch>,
     pub(super) search_index: Option<usize>,
     pub(super) stats_cursor: usize,
-    pub(super) show_mouse: bool,
     pub(super) show_highlight: bool,
     pub(super) diff_view_mode: DiffViewMode,
     pub(super) comment_input: String,
+    pub(super) focus: Focus,
+    pub(super) show_full_file: bool,
+    pub(super) file_hunk_positions: HashMap<usize, usize>,
 }
 
 impl AppState {
@@ -71,13 +80,15 @@ impl AppState {
             search_matches: Vec::new(),
             search_index: None,
             stats_cursor: 0,
-            show_mouse: config.defaults.mouse,
             show_highlight: config.defaults.highlight,
             diff_view_mode: match config.defaults.view {
                 ViewMode::Unified => DiffViewMode::Unified,
                 ViewMode::SideBySide => DiffViewMode::SideBySide,
             },
             comment_input: String::new(),
+            focus: Focus::DiffView,
+            show_full_file: false,
+            file_hunk_positions: HashMap::new(),
         }
     }
 
@@ -101,10 +112,6 @@ impl AppState {
         if let Some(file) = self.current_file() {
             if self.hunk_index + 1 < file.hunks.len() {
                 self.hunk_index += 1;
-            } else if self.file_index + 1 < self.diff.files.len() {
-                self.file_index += 1;
-                self.hunk_index = 0;
-                self.viewport_offset = 0;
             }
         }
         self.ensure_visible();
@@ -113,20 +120,15 @@ impl AppState {
     pub(super) fn prev_hunk(&mut self) {
         if self.hunk_index > 0 {
             self.hunk_index -= 1;
-        } else if self.file_index > 0 {
-            self.file_index -= 1;
-            if let Some(file) = self.current_file() {
-                self.hunk_index = file.hunks.len().saturating_sub(1);
-            }
-            self.viewport_offset = 0;
         }
         self.ensure_visible();
     }
 
     pub(super) fn next_file(&mut self) {
         if self.file_index + 1 < self.diff.files.len() {
+            self.file_hunk_positions.insert(self.file_index, self.hunk_index);
             self.file_index += 1;
-            self.hunk_index = 0;
+            self.hunk_index = self.file_hunk_positions.get(&self.file_index).copied().unwrap_or(0);
             self.viewport_offset = 0;
         }
         self.ensure_visible();
@@ -134,8 +136,9 @@ impl AppState {
 
     pub(super) fn prev_file(&mut self) {
         if self.file_index > 0 {
+            self.file_hunk_positions.insert(self.file_index, self.hunk_index);
             self.file_index -= 1;
-            self.hunk_index = 0;
+            self.hunk_index = self.file_hunk_positions.get(&self.file_index).copied().unwrap_or(0);
             self.viewport_offset = 0;
         }
         self.ensure_visible();
@@ -304,10 +307,14 @@ impl AppState {
             if hi == self.hunk_index {
                 return offset;
             }
-            // All non-current hunks are collapsed (1 line header only)
+            // Non-current hunks are collapsed (1 line header only),
+            // unless show_full_file is on (all hunks expanded)
             offset += 1;
             if hunk.comment.is_some() {
                 offset += 1;
+            }
+            if self.show_full_file {
+                offset += hunk.lines.len();
             }
         }
         offset
@@ -324,7 +331,7 @@ impl AppState {
             if hunk.comment.is_some() {
                 height += 1; // comment line
             }
-            if hi == self.hunk_index {
+            if hi == self.hunk_index || self.show_full_file {
                 height += hunk.lines.len();
             }
         }
@@ -342,14 +349,25 @@ impl AppState {
             h_height
         });
 
-        // If current hunk starts above viewport, scroll up
-        if offset < self.viewport_offset {
-            self.viewport_offset = offset;
-        }
-        // If current hunk ends below viewport, scroll down
         let bottom = offset + current_hunk_height;
-        if bottom > self.viewport_offset + self.viewport_height {
-            self.viewport_offset = bottom.saturating_sub(self.viewport_height);
+        if current_hunk_height <= self.viewport_height {
+            // Small hunk: ensure entire hunk is visible
+            if offset < self.viewport_offset {
+                self.viewport_offset = offset;
+            }
+            if bottom > self.viewport_offset + self.viewport_height {
+                self.viewport_offset = bottom.saturating_sub(self.viewport_height);
+            }
+        } else {
+            // Large hunk: only adjust if viewport doesn't overlap hunk at all
+            if self.viewport_offset + self.viewport_height <= offset {
+                // viewport is entirely above hunk → scroll to header
+                self.viewport_offset = offset;
+            }
+            if self.viewport_offset >= bottom {
+                // viewport is entirely below hunk → show bottom
+                self.viewport_offset = bottom.saturating_sub(self.viewport_height);
+            }
         }
     }
 
@@ -763,9 +781,9 @@ mod tests {
         state.hunk_index = 2;
         state.ensure_visible();
         // hunk2 offset = 2 (collapsed hunk0=1 + collapsed hunk1=1)
-        // hunk2 height = 1 + 10 = 11, bottom = 13
-        // viewport_offset should be 13 - 5 = 8
-        assert_eq!(state.viewport_offset, 8);
+        // hunk2 height = 1 + 10 = 11 > viewport 5 → large hunk branch
+        // viewport_offset=0, viewport bottom=5 > offset=2 → overlaps → no adjustment
+        assert_eq!(state.viewport_offset, 0);
     }
 
     #[test]
@@ -838,15 +856,15 @@ mod tests {
         )]);
         state.viewport_height = 20;
         state.ensure_visible();
-        // Hunk = 1 header + 100 lines = 101, viewport = 20
-        // ensure_visible scrolls to show bottom: 101 - 20 = 81
+        // Hunk = 1 header + 100 lines = 101 > viewport 20 → large hunk branch
+        // viewport_offset=0 overlaps hunk at offset=0 → no adjustment
+        assert_eq!(state.viewport_offset, 0);
+        // Scroll down to max
+        state.scroll_down(100);
         assert_eq!(state.viewport_offset, 81);
         // Scroll up
         state.scroll_up(30);
         assert_eq!(state.viewport_offset, 51);
-        // Scroll back down to max
-        state.scroll_down(100);
-        assert_eq!(state.viewport_offset, 81);
     }
 
     #[test]
@@ -1090,14 +1108,6 @@ mod tests {
 
     // --- Mouse support tests ---
 
-    #[test]
-    fn test_mouse_default_off() {
-        let state = make_state(vec![make_file(
-            "a.rs",
-            vec![make_hunk(ReviewStatus::Pending)],
-        )]);
-        assert!(!state.show_mouse);
-    }
 
     #[test]
     fn test_mouse_file_tree_coordinate_mapping() {
