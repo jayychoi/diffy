@@ -7,46 +7,197 @@ use ratatui::text::Span;
 fn get_keywords(ext: &str) -> &'static [&'static str] {
     match ext {
         "rs" => &[
-            "fn", "let", "mut", "pub", "use", "mod", "struct", "enum", "impl", "trait",
-            "match", "if", "else", "for", "while", "loop", "return", "self", "Self",
-            "super", "crate", "async", "await", "where", "type", "const", "static",
-            "ref", "move", "unsafe", "extern", "dyn", "macro_rules",
+            "fn",
+            "let",
+            "mut",
+            "pub",
+            "use",
+            "mod",
+            "struct",
+            "enum",
+            "impl",
+            "trait",
+            "match",
+            "if",
+            "else",
+            "for",
+            "while",
+            "loop",
+            "return",
+            "self",
+            "Self",
+            "super",
+            "crate",
+            "async",
+            "await",
+            "where",
+            "type",
+            "const",
+            "static",
+            "ref",
+            "move",
+            "unsafe",
+            "extern",
+            "dyn",
+            "macro_rules",
         ],
         "ts" | "js" | "tsx" | "jsx" => &[
-            "function", "const", "let", "var", "return", "if", "else", "for", "while",
-            "class", "interface", "type", "import", "export", "from", "async", "await",
-            "new", "this", "throw", "try", "catch", "finally", "typeof", "instanceof",
-            "extends", "implements",
+            "function",
+            "const",
+            "let",
+            "var",
+            "return",
+            "if",
+            "else",
+            "for",
+            "while",
+            "class",
+            "interface",
+            "type",
+            "import",
+            "export",
+            "from",
+            "async",
+            "await",
+            "new",
+            "this",
+            "throw",
+            "try",
+            "catch",
+            "finally",
+            "typeof",
+            "instanceof",
+            "extends",
+            "implements",
         ],
         "py" => &[
-            "def", "class", "return", "if", "elif", "else", "for", "while", "import",
-            "from", "as", "with", "try", "except", "finally", "raise", "yield", "lambda",
-            "pass", "break", "continue", "and", "or", "not", "in", "is", "None", "True",
-            "False", "self", "async", "await",
+            "def", "class", "return", "if", "elif", "else", "for", "while", "import", "from", "as",
+            "with", "try", "except", "finally", "raise", "yield", "lambda", "pass", "break",
+            "continue", "and", "or", "not", "in", "is", "None", "True", "False", "self", "async",
+            "await",
         ],
         "go" => &[
-            "func", "var", "const", "return", "if", "else", "for", "range", "switch",
-            "case", "default", "type", "struct", "interface", "map", "chan", "go",
-            "defer", "select", "package", "import", "nil", "true", "false",
+            "func",
+            "var",
+            "const",
+            "return",
+            "if",
+            "else",
+            "for",
+            "range",
+            "switch",
+            "case",
+            "default",
+            "type",
+            "struct",
+            "interface",
+            "map",
+            "chan",
+            "go",
+            "defer",
+            "select",
+            "package",
+            "import",
+            "nil",
+            "true",
+            "false",
         ],
         "java" => &[
-            "public", "private", "protected", "class", "interface", "extends", "implements",
-            "return", "if", "else", "for", "while", "new", "this", "super", "void",
-            "int", "String", "boolean", "static", "final", "abstract", "try", "catch",
-            "throw", "throws", "import", "package",
+            "public",
+            "private",
+            "protected",
+            "class",
+            "interface",
+            "extends",
+            "implements",
+            "return",
+            "if",
+            "else",
+            "for",
+            "while",
+            "new",
+            "this",
+            "super",
+            "void",
+            "int",
+            "String",
+            "boolean",
+            "static",
+            "final",
+            "abstract",
+            "try",
+            "catch",
+            "throw",
+            "throws",
+            "import",
+            "package",
         ],
         "c" | "cpp" | "h" | "hpp" | "cc" | "cxx" => &[
-            "int", "void", "char", "float", "double", "long", "short", "unsigned",
-            "signed", "const", "static", "return", "if", "else", "for", "while", "do",
-            "switch", "case", "break", "continue", "struct", "enum", "typedef", "sizeof",
-            "include", "define", "class", "public", "private", "protected", "virtual",
-            "template", "namespace", "using", "new", "delete",
+            "int",
+            "void",
+            "char",
+            "float",
+            "double",
+            "long",
+            "short",
+            "unsigned",
+            "signed",
+            "const",
+            "static",
+            "return",
+            "if",
+            "else",
+            "for",
+            "while",
+            "do",
+            "switch",
+            "case",
+            "break",
+            "continue",
+            "struct",
+            "enum",
+            "typedef",
+            "sizeof",
+            "include",
+            "define",
+            "class",
+            "public",
+            "private",
+            "protected",
+            "virtual",
+            "template",
+            "namespace",
+            "using",
+            "new",
+            "delete",
         ],
         "rb" => &[
-            "def", "end", "class", "module", "return", "if", "elsif", "else", "unless",
-            "while", "do", "begin", "rescue", "ensure", "raise", "yield", "block_given?",
-            "self", "nil", "true", "false", "require", "include", "attr_reader",
-            "attr_writer", "attr_accessor",
+            "def",
+            "end",
+            "class",
+            "module",
+            "return",
+            "if",
+            "elsif",
+            "else",
+            "unless",
+            "while",
+            "do",
+            "begin",
+            "rescue",
+            "ensure",
+            "raise",
+            "yield",
+            "block_given?",
+            "self",
+            "nil",
+            "true",
+            "false",
+            "require",
+            "include",
+            "attr_reader",
+            "attr_writer",
+            "attr_accessor",
         ],
         _ => &[],
     }
@@ -76,7 +227,11 @@ pub(super) fn highlight_line<'a>(line: &'a str, ext: &str, base_style: Style) ->
         if c == '"' || c == '\'' {
             // Emit any pending text before the string
             if i > last_end {
-                spans.extend(highlight_text_segment(&line[last_end..i], keywords, base_style));
+                spans.extend(highlight_text_segment(
+                    &line[last_end..i],
+                    keywords,
+                    base_style,
+                ));
             }
 
             // Find the closing quote
@@ -106,7 +261,11 @@ pub(super) fn highlight_line<'a>(line: &'a str, ext: &str, base_style: Style) ->
 
     // Emit any remaining text
     if last_end < line.len() {
-        spans.extend(highlight_text_segment(&line[last_end..], keywords, base_style));
+        spans.extend(highlight_text_segment(
+            &line[last_end..],
+            keywords,
+            base_style,
+        ));
     }
 
     if spans.is_empty() {
@@ -182,9 +341,9 @@ mod tests {
         // Should have multiple spans, "fn" should be highlighted
         assert!(spans.len() > 1);
         // Find "fn" span
-        let has_fn = spans.iter().any(|s| {
-            s.content == "fn" && s.style.fg == Some(Color::Magenta)
-        });
+        let has_fn = spans
+            .iter()
+            .any(|s| s.content == "fn" && s.style.fg == Some(Color::Magenta));
         assert!(has_fn, "Should highlight 'fn' keyword");
     }
 
@@ -220,9 +379,9 @@ mod tests {
         let base = Style::default().fg(Color::Green);
         let spans = highlight_line("def hello():", "py", base);
         assert!(spans.len() > 1);
-        let has_def = spans.iter().any(|s| {
-            s.content == "def" && s.style.fg == Some(Color::Magenta)
-        });
+        let has_def = spans
+            .iter()
+            .any(|s| s.content == "def" && s.style.fg == Some(Color::Magenta));
         assert!(has_def, "Should highlight 'def' keyword");
     }
 
@@ -231,9 +390,9 @@ mod tests {
         let base = Style::default().fg(Color::Green);
         let spans = highlight_line("func main() {", "go", base);
         assert!(spans.len() > 1);
-        let has_func = spans.iter().any(|s| {
-            s.content == "func" && s.style.fg == Some(Color::Magenta)
-        });
+        let has_func = spans
+            .iter()
+            .any(|s| s.content == "func" && s.style.fg == Some(Color::Magenta));
         assert!(has_func, "Should highlight 'func' keyword");
     }
 
@@ -242,9 +401,9 @@ mod tests {
         let base = Style::default().fg(Color::Green);
         let spans = highlight_line("const x = 1;", "js", base);
         assert!(spans.len() > 1);
-        let has_const = spans.iter().any(|s| {
-            s.content == "const" && s.style.fg == Some(Color::Magenta)
-        });
+        let has_const = spans
+            .iter()
+            .any(|s| s.content == "const" && s.style.fg == Some(Color::Magenta));
         assert!(has_const, "Should highlight 'const' keyword");
     }
 
@@ -254,7 +413,8 @@ mod tests {
         let spans = highlight_line("let returning = 1;", "rs", base);
         // "returning" should NOT be highlighted as "return" keyword
         // "let" should be highlighted
-        let magenta_spans: Vec<_> = spans.iter()
+        let magenta_spans: Vec<_> = spans
+            .iter()
             .filter(|s| s.style.fg == Some(Color::Magenta))
             .collect();
         // Only "let" should be magenta
@@ -290,7 +450,8 @@ mod tests {
     fn test_escaped_quote_in_string() {
         let base = Style::default().fg(Color::Green);
         let spans = highlight_line(r#"let x = "hello \"world\"";"#, "rs", base);
-        let yellow_spans: Vec<_> = spans.iter()
+        let yellow_spans: Vec<_> = spans
+            .iter()
             .filter(|s| s.style.fg == Some(Color::Yellow))
             .collect();
         // The entire string including escaped quotes should be one span
@@ -301,7 +462,8 @@ mod tests {
     fn test_multiple_keywords() {
         let base = Style::default().fg(Color::Green);
         let spans = highlight_line("pub fn test() -> impl Trait {", "rs", base);
-        let magenta_count = spans.iter()
+        let magenta_count = spans
+            .iter()
             .filter(|s| s.style.fg == Some(Color::Magenta))
             .count();
         // Should highlight: pub, fn, impl, Trait (if Trait was a keyword, but it's not)

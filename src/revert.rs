@@ -1,9 +1,9 @@
 //! 백업/복원/역방향 patch
 
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use anyhow::{Result, bail, Context};
 
 use crate::git;
 use crate::model::{Diff, DiffLine, ReviewStatus};
@@ -92,7 +92,10 @@ pub fn restore() -> Result<i32> {
             let kept = &lines[..lines.len() - 1];
             fs::write(&ref_file, kept.join("\n") + "\n")?;
         }
-        eprintln!("[diffy] Backup restored: {}", &last_ref[..8.min(last_ref.len())]);
+        eprintln!(
+            "[diffy] Backup restored: {}",
+            &last_ref[..8.min(last_ref.len())]
+        );
         Ok(0)
     } else {
         eprintln!("[diffy] Backup restore failed.");
@@ -109,7 +112,9 @@ pub fn generate_reverse_patch(diff: &Diff) -> String {
             continue;
         }
 
-        let rejected_hunks: Vec<_> = file.hunks.iter()
+        let rejected_hunks: Vec<_> = file
+            .hunks
+            .iter()
             .filter(|h| h.status == ReviewStatus::Rejected)
             .collect();
 
@@ -124,8 +129,7 @@ pub fn generate_reverse_patch(diff: &Diff) -> String {
             // 역방향: old ↔ new 교환
             let rev_header = format!(
                 "@@ -{},{} +{},{} @@",
-                hunk.new_start, hunk.new_count,
-                hunk.old_start, hunk.old_count,
+                hunk.new_start, hunk.new_count, hunk.old_start, hunk.old_count,
             );
             output.push_str(&rev_header);
             output.push('\n');
@@ -187,14 +191,24 @@ mod tests {
     use crate::model::{FileDiff, Hunk};
 
     fn make_hunk(
-        old_start: u32, old_count: u32,
-        new_start: u32, new_count: u32,
-        lines: Vec<DiffLine>, status: ReviewStatus,
+        old_start: u32,
+        old_count: u32,
+        new_start: u32,
+        new_count: u32,
+        lines: Vec<DiffLine>,
+        status: ReviewStatus,
     ) -> Hunk {
         Hunk {
-            header: format!("@@ -{},{} +{},{} @@", old_start, old_count, new_start, new_count),
-            old_start, old_count, new_start, new_count,
-            lines, status,
+            header: format!(
+                "@@ -{},{} +{},{} @@",
+                old_start, old_count, new_start, new_count
+            ),
+            old_start,
+            old_count,
+            new_start,
+            new_count,
+            lines,
+            status,
             comment: None,
         }
     }
@@ -213,14 +227,22 @@ mod tests {
     #[test]
     fn test_reverse_single_add() {
         let diff = Diff {
-            files: vec![make_file("src/main.rs", vec![
-                make_hunk(1, 3, 1, 4, vec![
-                    DiffLine::Context("line1".to_string()),
-                    DiffLine::Context("line2".to_string()),
-                    DiffLine::Added("new line".to_string()),
-                    DiffLine::Context("line3".to_string()),
-                ], ReviewStatus::Rejected),
-            ])],
+            files: vec![make_file(
+                "src/main.rs",
+                vec![make_hunk(
+                    1,
+                    3,
+                    1,
+                    4,
+                    vec![
+                        DiffLine::Context("line1".to_string()),
+                        DiffLine::Context("line2".to_string()),
+                        DiffLine::Added("new line".to_string()),
+                        DiffLine::Context("line3".to_string()),
+                    ],
+                    ReviewStatus::Rejected,
+                )],
+            )],
         };
 
         let patch = generate_reverse_patch(&diff);
@@ -232,14 +254,22 @@ mod tests {
     #[test]
     fn test_reverse_single_remove() {
         let diff = Diff {
-            files: vec![make_file("src/main.rs", vec![
-                make_hunk(1, 4, 1, 3, vec![
-                    DiffLine::Context("line1".to_string()),
-                    DiffLine::Removed("deleted line".to_string()),
-                    DiffLine::Context("line2".to_string()),
-                    DiffLine::Context("line3".to_string()),
-                ], ReviewStatus::Rejected),
-            ])],
+            files: vec![make_file(
+                "src/main.rs",
+                vec![make_hunk(
+                    1,
+                    4,
+                    1,
+                    3,
+                    vec![
+                        DiffLine::Context("line1".to_string()),
+                        DiffLine::Removed("deleted line".to_string()),
+                        DiffLine::Context("line2".to_string()),
+                        DiffLine::Context("line3".to_string()),
+                    ],
+                    ReviewStatus::Rejected,
+                )],
+            )],
         };
 
         let patch = generate_reverse_patch(&diff);
@@ -250,14 +280,22 @@ mod tests {
     #[test]
     fn test_reverse_mixed() {
         let diff = Diff {
-            files: vec![make_file("src/main.rs", vec![
-                make_hunk(1, 3, 1, 3, vec![
-                    DiffLine::Context("line1".to_string()),
-                    DiffLine::Removed("old".to_string()),
-                    DiffLine::Added("new".to_string()),
-                    DiffLine::Context("line3".to_string()),
-                ], ReviewStatus::Rejected),
-            ])],
+            files: vec![make_file(
+                "src/main.rs",
+                vec![make_hunk(
+                    1,
+                    3,
+                    1,
+                    3,
+                    vec![
+                        DiffLine::Context("line1".to_string()),
+                        DiffLine::Removed("old".to_string()),
+                        DiffLine::Added("new".to_string()),
+                        DiffLine::Context("line3".to_string()),
+                    ],
+                    ReviewStatus::Rejected,
+                )],
+            )],
         };
 
         let patch = generate_reverse_patch(&diff);
@@ -269,11 +307,17 @@ mod tests {
     #[test]
     fn test_reverse_header_recalc() {
         let diff = Diff {
-            files: vec![make_file("src/main.rs", vec![
-                make_hunk(10, 5, 10, 8, vec![
-                    DiffLine::Added("a".to_string()),
-                ], ReviewStatus::Rejected),
-            ])],
+            files: vec![make_file(
+                "src/main.rs",
+                vec![make_hunk(
+                    10,
+                    5,
+                    10,
+                    8,
+                    vec![DiffLine::Added("a".to_string())],
+                    ReviewStatus::Rejected,
+                )],
+            )],
         };
 
         let patch = generate_reverse_patch(&diff);
@@ -284,14 +328,27 @@ mod tests {
     #[test]
     fn test_reverse_only_rejected() {
         let diff = Diff {
-            files: vec![make_file("src/main.rs", vec![
-                make_hunk(1, 2, 1, 3, vec![
-                    DiffLine::Added("accepted".to_string()),
-                ], ReviewStatus::Accepted),
-                make_hunk(10, 2, 11, 3, vec![
-                    DiffLine::Added("rejected".to_string()),
-                ], ReviewStatus::Rejected),
-            ])],
+            files: vec![make_file(
+                "src/main.rs",
+                vec![
+                    make_hunk(
+                        1,
+                        2,
+                        1,
+                        3,
+                        vec![DiffLine::Added("accepted".to_string())],
+                        ReviewStatus::Accepted,
+                    ),
+                    make_hunk(
+                        10,
+                        2,
+                        11,
+                        3,
+                        vec![DiffLine::Added("rejected".to_string())],
+                        ReviewStatus::Rejected,
+                    ),
+                ],
+            )],
         };
 
         let patch = generate_reverse_patch(&diff);
@@ -337,11 +394,17 @@ mod tests {
     #[test]
     fn test_reverse_empty_when_all_accepted() {
         let diff = Diff {
-            files: vec![make_file("src/main.rs", vec![
-                make_hunk(1, 2, 1, 3, vec![
-                    DiffLine::Added("line".to_string()),
-                ], ReviewStatus::Accepted),
-            ])],
+            files: vec![make_file(
+                "src/main.rs",
+                vec![make_hunk(
+                    1,
+                    2,
+                    1,
+                    3,
+                    vec![DiffLine::Added("line".to_string())],
+                    ReviewStatus::Accepted,
+                )],
+            )],
         };
 
         let patch = generate_reverse_patch(&diff);

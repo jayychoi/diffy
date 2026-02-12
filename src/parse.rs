@@ -1,7 +1,7 @@
 //! unified diff 파서
 
-use anyhow::Result;
 use crate::model::{Diff, DiffLine, FileDiff, Hunk, ReviewStatus};
+use anyhow::Result;
 
 /// unified diff 텍스트를 파싱한다
 pub fn parse_diff(input: &str) -> Result<Diff> {
@@ -15,7 +15,10 @@ pub fn parse_diff(input: &str) -> Result<Diff> {
             i += 1; // diff --git 라인 건너뛰기
 
             // --- 라인 찾기
-            while i < lines.len() && !lines[i].starts_with("---") && !lines[i].starts_with("Binary files") {
+            while i < lines.len()
+                && !lines[i].starts_with("---")
+                && !lines[i].starts_with("Binary files")
+            {
                 i += 1;
             }
 

@@ -1,8 +1,8 @@
 //! Key input handling
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use super::state::{AppMode, AppState};
 use crate::model::ReviewStatus;
-use super::state::{AppState, AppMode};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Action {
@@ -61,10 +61,18 @@ pub(super) fn handle_key(key: &KeyEvent, state: &AppState) -> Action {
                 KeyCode::Char('j') | KeyCode::Down => Action::NextHunk,
                 KeyCode::Char('k') | KeyCode::Up => Action::PrevHunk,
                 KeyCode::Char('n') => {
-                    if state.has_active_search() { Action::NextMatch } else { Action::NextFile }
+                    if state.has_active_search() {
+                        Action::NextMatch
+                    } else {
+                        Action::NextFile
+                    }
                 }
                 KeyCode::Char('N') => {
-                    if state.has_active_search() { Action::PrevMatch } else { Action::PrevFile }
+                    if state.has_active_search() {
+                        Action::PrevMatch
+                    } else {
+                        Action::PrevFile
+                    }
                 }
                 KeyCode::Char('a') => Action::Accept,
                 KeyCode::Char('r') => Action::Reject,
@@ -159,7 +167,9 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
             state.mode = AppMode::Normal;
         }
         Action::LastHunk => state.last_hunk(),
-        Action::NextPending => { state.next_pending(); }
+        Action::NextPending => {
+            state.next_pending();
+        }
         Action::EnterPendingG => {
             state.mode = AppMode::PendingG;
         }
@@ -259,8 +269,8 @@ pub(super) fn apply_action(action: Action, state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use crate::model::{Diff, DiffLine, FileDiff, Hunk, ReviewStatus};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
@@ -297,7 +307,13 @@ mod tests {
     fn state_normal() -> AppState {
         let diff = Diff {
             files: vec![
-                make_file("a.rs", vec![make_hunk(ReviewStatus::Pending), make_hunk(ReviewStatus::Pending)]),
+                make_file(
+                    "a.rs",
+                    vec![
+                        make_hunk(ReviewStatus::Pending),
+                        make_hunk(ReviewStatus::Pending),
+                    ],
+                ),
                 make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
             ],
         };
@@ -309,13 +325,19 @@ mod tests {
     #[test]
     fn test_key_j() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('j')), &state), Action::NextHunk);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('j')), &state),
+            Action::NextHunk
+        );
     }
 
     #[test]
     fn test_key_k() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('k')), &state), Action::PrevHunk);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('k')), &state),
+            Action::PrevHunk
+        );
     }
 
     #[test]
@@ -351,13 +373,19 @@ mod tests {
     #[test]
     fn test_key_shift_g_last() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('G')), &state), Action::LastHunk);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('G')), &state),
+            Action::LastHunk
+        );
     }
 
     #[test]
     fn test_key_g_pending_g() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('g')), &state), Action::EnterPendingG);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('g')), &state),
+            Action::EnterPendingG
+        );
     }
 
     #[test]
@@ -386,14 +414,20 @@ mod tests {
     fn test_pending_g_then_g() {
         let mut state = state_normal();
         state.mode = AppMode::PendingG;
-        assert_eq!(handle_key(&key(KeyCode::Char('g')), &state), Action::FirstHunk);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('g')), &state),
+            Action::FirstHunk
+        );
     }
 
     #[test]
     fn test_pending_g_then_other() {
         let mut state = state_normal();
         state.mode = AppMode::PendingG;
-        assert_eq!(handle_key(&key(KeyCode::Char('j')), &state), Action::CancelPendingG);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('j')), &state),
+            Action::CancelPendingG
+        );
     }
 
     // --- ConfirmQuit mode test ---
@@ -402,7 +436,10 @@ mod tests {
     fn test_confirm_quit_y() {
         let mut state = state_normal();
         state.mode = AppMode::ConfirmQuit;
-        assert_eq!(handle_key(&key(KeyCode::Char('y')), &state), Action::ConfirmQuit);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('y')), &state),
+            Action::ConfirmQuit
+        );
     }
 
     // --- File tree toggle ---
@@ -410,7 +447,10 @@ mod tests {
     #[test]
     fn test_key_f_toggle_tree() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('f')), &state), Action::ToggleFileTree);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('f')), &state),
+            Action::ToggleFileTree
+        );
     }
 
     #[test]
@@ -428,16 +468,25 @@ mod tests {
     #[test]
     fn test_key_slash_search() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('/')), &state), Action::EnterSearch);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('/')), &state),
+            Action::EnterSearch
+        );
     }
 
     #[test]
     fn test_search_mode_keys() {
         let mut state = state_normal();
         state.mode = AppMode::Search;
-        assert_eq!(handle_key(&key(KeyCode::Enter), &state), Action::SubmitSearch);
+        assert_eq!(
+            handle_key(&key(KeyCode::Enter), &state),
+            Action::SubmitSearch
+        );
         assert_eq!(handle_key(&key(KeyCode::Esc), &state), Action::CancelSearch);
-        assert_eq!(handle_key(&key(KeyCode::Backspace), &state), Action::SearchBackspace);
+        assert_eq!(
+            handle_key(&key(KeyCode::Backspace), &state),
+            Action::SearchBackspace
+        );
         // Char keys return None (handled in run_loop)
         assert_eq!(handle_key(&key(KeyCode::Char('x')), &state), Action::None);
     }
@@ -448,8 +497,14 @@ mod tests {
     fn test_n_key_no_search() {
         let state = state_normal();
         // No active search → NextFile
-        assert_eq!(handle_key(&key(KeyCode::Char('n')), &state), Action::NextFile);
-        assert_eq!(handle_key(&key(KeyCode::Char('N')), &state), Action::PrevFile);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('n')), &state),
+            Action::NextFile
+        );
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('N')), &state),
+            Action::PrevFile
+        );
     }
 
     #[test]
@@ -462,8 +517,14 @@ mod tests {
             hunk_index: 0,
             line_index: 0,
         });
-        assert_eq!(handle_key(&key(KeyCode::Char('n')), &state), Action::NextMatch);
-        assert_eq!(handle_key(&key(KeyCode::Char('N')), &state), Action::PrevMatch);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('n')), &state),
+            Action::NextMatch
+        );
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('N')), &state),
+            Action::PrevMatch
+        );
     }
 
     // --- Stats overlay tests ---
@@ -471,21 +532,36 @@ mod tests {
     #[test]
     fn test_key_s_stats() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('s')), &state), Action::ToggleStats);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('s')), &state),
+            Action::ToggleStats
+        );
     }
 
     #[test]
     fn test_stats_mode_keys() {
         let mut state = state_normal();
         state.mode = AppMode::Stats;
-        assert_eq!(handle_key(&key(KeyCode::Char('j')), &state), Action::NextHunk);
-        assert_eq!(handle_key(&key(KeyCode::Char('k')), &state), Action::PrevHunk);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('j')), &state),
+            Action::NextHunk
+        );
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('k')), &state),
+            Action::PrevHunk
+        );
         assert_eq!(handle_key(&key(KeyCode::Down), &state), Action::NextHunk);
         assert_eq!(handle_key(&key(KeyCode::Up), &state), Action::PrevHunk);
         assert_eq!(handle_key(&key(KeyCode::Enter), &state), Action::Accept);
-        assert_eq!(handle_key(&key(KeyCode::Char('s')), &state), Action::ToggleStats);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('s')), &state),
+            Action::ToggleStats
+        );
         assert_eq!(handle_key(&key(KeyCode::Esc), &state), Action::ToggleStats);
-        assert_eq!(handle_key(&key(KeyCode::Char('q')), &state), Action::ToggleStats);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('q')), &state),
+            Action::ToggleStats
+        );
         // Other keys should be ignored
         assert_eq!(handle_key(&key(KeyCode::Char('a')), &state), Action::None);
     }
@@ -520,7 +596,10 @@ mod tests {
     #[test]
     fn test_key_m_mouse() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('m')), &state), Action::ToggleMouse);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('m')), &state),
+            Action::ToggleMouse
+        );
     }
 
     #[test]
@@ -536,7 +615,10 @@ mod tests {
     #[test]
     fn test_key_h_highlight() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('h')), &state), Action::ToggleHighlight);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('h')), &state),
+            Action::ToggleHighlight
+        );
     }
 
     #[test]
@@ -552,17 +634,29 @@ mod tests {
     #[test]
     fn test_key_d_diff_view() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('d')), &state), Action::ToggleDiffView);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('d')), &state),
+            Action::ToggleDiffView
+        );
     }
 
     #[test]
     fn test_toggle_diff_view_action() {
         let mut state = state_normal();
-        assert_eq!(state.diff_view_mode, super::super::state::DiffViewMode::Unified);
+        assert_eq!(
+            state.diff_view_mode,
+            super::super::state::DiffViewMode::Unified
+        );
         apply_action(Action::ToggleDiffView, &mut state);
-        assert_eq!(state.diff_view_mode, super::super::state::DiffViewMode::SideBySide);
+        assert_eq!(
+            state.diff_view_mode,
+            super::super::state::DiffViewMode::SideBySide
+        );
         apply_action(Action::ToggleDiffView, &mut state);
-        assert_eq!(state.diff_view_mode, super::super::state::DiffViewMode::Unified);
+        assert_eq!(
+            state.diff_view_mode,
+            super::super::state::DiffViewMode::Unified
+        );
     }
 
     // --- Comment mode tests ---
@@ -570,16 +664,28 @@ mod tests {
     #[test]
     fn test_key_c_comment() {
         let state = state_normal();
-        assert_eq!(handle_key(&key(KeyCode::Char('c')), &state), Action::EnterComment);
+        assert_eq!(
+            handle_key(&key(KeyCode::Char('c')), &state),
+            Action::EnterComment
+        );
     }
 
     #[test]
     fn test_comment_mode_keys() {
         let mut state = state_normal();
         state.mode = AppMode::CommentEdit;
-        assert_eq!(handle_key(&key(KeyCode::Enter), &state), Action::SubmitComment);
-        assert_eq!(handle_key(&key(KeyCode::Esc), &state), Action::CancelComment);
-        assert_eq!(handle_key(&key(KeyCode::Backspace), &state), Action::CommentBackspace);
+        assert_eq!(
+            handle_key(&key(KeyCode::Enter), &state),
+            Action::SubmitComment
+        );
+        assert_eq!(
+            handle_key(&key(KeyCode::Esc), &state),
+            Action::CancelComment
+        );
+        assert_eq!(
+            handle_key(&key(KeyCode::Backspace), &state),
+            Action::CommentBackspace
+        );
         assert_eq!(handle_key(&key(KeyCode::Char('x')), &state), Action::None);
     }
 
@@ -592,7 +698,10 @@ mod tests {
         state.comment_input = "needs fix".to_string();
         apply_action(Action::SubmitComment, &mut state);
         assert_eq!(state.mode, AppMode::Normal);
-        assert_eq!(state.current_hunk().unwrap().comment, Some("needs fix".to_string()));
+        assert_eq!(
+            state.current_hunk().unwrap().comment,
+            Some("needs fix".to_string())
+        );
     }
 
     #[test]

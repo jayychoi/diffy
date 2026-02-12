@@ -1,9 +1,9 @@
 //! 통합 테스트: parse → 상태 조작 → output 파이프라인
 
-use diffy::model::ReviewStatus;
-use diffy::parse::parse_diff;
-use diffy::output::{write_diff, write_json};
-use diffy::hook::write_feedback;
+use diffy_tui::hook::write_feedback;
+use diffy_tui::model::ReviewStatus;
+use diffy_tui::output::{write_diff, write_json};
+use diffy_tui::parse::parse_diff;
 use indoc::indoc;
 use serde_json::Value;
 

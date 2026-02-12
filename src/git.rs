@@ -1,8 +1,8 @@
 //! Git CLI 래퍼
 
+use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 use std::process::Command;
-use anyhow::{Result, bail, Context};
 
 pub enum DiffMode {
     Unstaged,
@@ -47,16 +47,25 @@ pub fn git_diff(mode: &DiffMode, path: Option<&str>) -> Result<String> {
     cmd.arg("diff");
     match mode {
         DiffMode::Unstaged => {}
-        DiffMode::Staged => { cmd.arg("--staged"); }
-        DiffMode::Head => { cmd.arg("HEAD"); }
-        DiffMode::Ref(r) => { cmd.arg(r); }
+        DiffMode::Staged => {
+            cmd.arg("--staged");
+        }
+        DiffMode::Head => {
+            cmd.arg("HEAD");
+        }
+        DiffMode::Ref(r) => {
+            cmd.arg(r);
+        }
     }
     if let Some(p) = path {
         cmd.arg("--").arg(p);
     }
     let output = cmd.output().context("git not found")?;
     if !output.status.success() {
-        bail!("git diff failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "git diff failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     Ok(String::from_utf8(output.stdout)?)
 }

@@ -1,4 +1,4 @@
-//! diffy — 인터랙티브 diff 리뷰어
+//! diffy-tui — 인터랙티브 diff 리뷰어
 //!
 //! 사용법:
 //!   git diff | diffy | git apply    (파이프 모드)
@@ -10,8 +10,8 @@ use std::process;
 use anyhow::Result;
 use clap::Parser;
 
-use diffy::{git, hook, model, output, parse, revert, tty, tui};
-use diffy::cli::Cli;
+use diffy_tui::cli::Cli;
+use diffy_tui::{git, hook, model, output, parse, revert, tty, tui};
 
 fn run() -> Result<i32> {
     let cli = Cli::parse();
@@ -114,7 +114,9 @@ fn write_output(diff: &model::Diff, cli: &Cli, total_hunks: usize) -> Result<i32
     let has_output = output::write_diff(diff, &mut stdout)?;
     stdout.flush()?;
 
-    let accepted: usize = diff.files.iter()
+    let accepted: usize = diff
+        .files
+        .iter()
         .flat_map(|f| &f.hunks)
         .filter(|h| h.status == model::ReviewStatus::Accepted)
         .count();

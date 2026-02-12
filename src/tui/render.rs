@@ -1,5 +1,8 @@
 //! Widget rendering
 
+use super::highlight;
+use super::state::{AppMode, AppState, DiffViewMode};
+use crate::model::{DiffLine, FileReviewSummary, ReviewStatus};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -7,16 +10,13 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
-use crate::model::{DiffLine, FileReviewSummary, ReviewStatus};
-use super::state::{AppState, AppMode, DiffViewMode};
-use super::highlight;
 
 /// Main render function
 pub(super) fn render(frame: &mut Frame, state: &AppState) {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // file bar
+            Constraint::Length(1), // file bar
             Constraint::Min(0),    // main content
             Constraint::Length(1), // status bar
         ])
@@ -29,7 +29,7 @@ pub(super) fn render(frame: &mut Frame, state: &AppState) {
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Length(30), // file tree
-                Constraint::Min(0),    // diff view
+                Constraint::Min(0),     // diff view
             ])
             .split(vertical[1]);
         render_file_tree(frame, state, horizontal[0]);
@@ -142,9 +142,10 @@ fn is_search_match(state: &AppState, hunk_index: usize, line_index: usize) -> bo
         return false;
     }
     let fi = state.file_index;
-    state.search_matches.iter().any(|m| {
-        m.file_index == fi && m.hunk_index == hunk_index && m.line_index == line_index
-    })
+    state
+        .search_matches
+        .iter()
+        .any(|m| m.file_index == fi && m.hunk_index == hunk_index && m.line_index == line_index)
 }
 
 /// Check if a line is the *current* search match (for stronger highlight)
@@ -288,12 +289,10 @@ fn build_virtual_doc<'a>(state: &'a AppState) -> Vec<Line<'a>> {
                         }
                         Line::from(line_spans)
                     }
-                    DiffLine::NoNewline => {
-                        Line::from(Span::styled(
-                            "\\ No newline at end of file",
-                            Style::default().fg(Color::Yellow),
-                        ))
-                    }
+                    DiffLine::NoNewline => Line::from(Span::styled(
+                        "\\ No newline at end of file",
+                        Style::default().fg(Color::Yellow),
+                    )),
                 };
                 lines.push(line);
             }
@@ -473,8 +472,7 @@ fn render_side_by_side(frame: &mut Frame, state: &AppState, area: Rect) {
     let end = (start + area.height as usize).min(all_lines.len());
     let visible: Vec<Line> = all_lines[start..end].to_vec();
 
-    let paragraph = Paragraph::new(visible)
-        .block(Block::default().borders(Borders::NONE));
+    let paragraph = Paragraph::new(visible).block(Block::default().borders(Borders::NONE));
     frame.render_widget(paragraph, area);
 }
 
@@ -493,8 +491,7 @@ fn render_diff_view(frame: &mut Frame, state: &AppState, area: Rect) {
         let end = (start + area.height as usize).min(all_lines.len());
         let visible: Vec<Line> = all_lines[start..end].to_vec();
 
-        let paragraph = Paragraph::new(visible)
-            .block(Block::default().borders(Borders::NONE));
+        let paragraph = Paragraph::new(visible).block(Block::default().borders(Borders::NONE));
         frame.render_widget(paragraph, area);
     }
 }
@@ -502,14 +499,18 @@ fn render_diff_view(frame: &mut Frame, state: &AppState, area: Rect) {
 /// Status bar
 fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
     let text = match state.mode {
-        AppMode::ConfirmQuit => {
-            " Quit? Unsaved review will be lost. (y/n)".to_string()
-        }
+        AppMode::ConfirmQuit => " Quit? Unsaved review will be lost. (y/n)".to_string(),
         AppMode::Search => {
-            format!(" /{}\u{2588}                              (Enter: search, Esc: cancel)", state.search_query)
+            format!(
+                " /{}\u{2588}                              (Enter: search, Esc: cancel)",
+                state.search_query
+            )
         }
         AppMode::CommentEdit => {
-            format!(" comment: {}\u{2588}                    (Enter: save, Esc: cancel)", state.comment_input)
+            format!(
+                " comment: {}\u{2588}                    (Enter: save, Esc: cancel)",
+                state.comment_input
+            )
         }
         AppMode::PendingG => {
             let total = state.total_hunks();
@@ -556,8 +557,8 @@ fn render_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
         }
     };
 
-    let paragraph = Paragraph::new(text)
-        .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let paragraph =
+        Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::White));
     frame.render_widget(paragraph, area);
 }
 
@@ -566,7 +567,10 @@ fn render_stats_overlay(frame: &mut Frame, state: &AppState) {
     let area = centered_rect(60, 70, frame.area());
 
     let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::from(Span::styled("Diff Summary", Style::default().fg(Color::Yellow))));
+    lines.push(Line::from(Span::styled(
+        "Diff Summary",
+        Style::default().fg(Color::Yellow),
+    )));
     lines.push(Line::from(""));
 
     // File list
@@ -591,16 +595,32 @@ fn render_stats_overlay(frame: &mut Frame, state: &AppState) {
         };
 
         let marker_style = Style::default().fg(Color::Yellow);
-        let marker_style = if let Some(bg_color) = bg { marker_style.bg(bg_color) } else { marker_style };
+        let marker_style = if let Some(bg_color) = bg {
+            marker_style.bg(bg_color)
+        } else {
+            marker_style
+        };
 
         let path_style = Style::default().fg(Color::White);
-        let path_style = if let Some(bg_color) = bg { path_style.bg(bg_color) } else { path_style };
+        let path_style = if let Some(bg_color) = bg {
+            path_style.bg(bg_color)
+        } else {
+            path_style
+        };
 
         let add_style = Style::default().fg(Color::Green);
-        let add_style = if let Some(bg_color) = bg { add_style.bg(bg_color) } else { add_style };
+        let add_style = if let Some(bg_color) = bg {
+            add_style.bg(bg_color)
+        } else {
+            add_style
+        };
 
         let rem_style = Style::default().fg(Color::Red);
-        let rem_style = if let Some(bg_color) = bg { rem_style.bg(bg_color) } else { rem_style };
+        let rem_style = if let Some(bg_color) = bg {
+            rem_style.bg(bg_color)
+        } else {
+            rem_style
+        };
 
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", marker), marker_style),
@@ -624,15 +644,27 @@ fn render_stats_overlay(frame: &mut Frame, state: &AppState) {
 
     lines.push(Line::from(vec![
         Span::styled(" Total: ", Style::default().fg(Color::White)),
-        Span::styled(format!("{} files  ", total_files), Style::default().fg(Color::White)),
-        Span::styled(format!("+{}", total_added), Style::default().fg(Color::Green)),
-        Span::styled(format!(" -{}", total_removed), Style::default().fg(Color::Red)),
+        Span::styled(
+            format!("{} files  ", total_files),
+            Style::default().fg(Color::White),
+        ),
+        Span::styled(
+            format!("+{}", total_added),
+            Style::default().fg(Color::Green),
+        ),
+        Span::styled(
+            format!(" -{}", total_removed),
+            Style::default().fg(Color::Red),
+        ),
     ]));
 
     lines.push(Line::from(vec![
         Span::styled(" Reviewed: ", Style::default().fg(Color::White)),
         Span::styled(
-            format!("{}/{} hunks [a:{} r:{}]", reviewed, total_hunks, accepted, rejected),
+            format!(
+                "{}/{} hunks [a:{} r:{}]",
+                reviewed, total_hunks, accepted, rejected
+            ),
             Style::default().fg(Color::White),
         ),
     ]));
@@ -660,7 +692,10 @@ fn render_help_overlay(frame: &mut Frame, _state: &AppState) {
     let area = centered_rect(60, 70, frame.area());
 
     let help_text = vec![
-        Line::from(Span::styled("Key Bindings", Style::default().fg(Color::Yellow))),
+        Line::from(Span::styled(
+            "Key Bindings",
+            Style::default().fg(Color::Yellow),
+        )),
         Line::from(""),
         Line::from(vec![
             Span::styled("j/↓       ", Style::default().fg(Color::Cyan)),
@@ -768,7 +803,10 @@ fn render_help_overlay(frame: &mut Frame, _state: &AppState) {
             Span::raw("Quit"),
         ]),
         Line::from(""),
-        Line::from(Span::styled("Press any key to close", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            "Press any key to close",
+            Style::default().fg(Color::DarkGray),
+        )),
     ];
 
     let block = Block::default()
@@ -810,13 +848,21 @@ mod tests {
     use crate::model::{Diff, DiffLine, FileDiff, Hunk};
 
     fn make_hunk_with_lines(
-        old_start: u32, old_count: u32,
-        new_start: u32, new_count: u32,
+        old_start: u32,
+        old_count: u32,
+        new_start: u32,
+        new_count: u32,
         lines: Vec<DiffLine>,
     ) -> Hunk {
         Hunk {
-            header: format!("@@ -{},{} +{},{} @@", old_start, old_count, new_start, new_count),
-            old_start, old_count, new_start, new_count,
+            header: format!(
+                "@@ -{},{} +{},{} @@",
+                old_start, old_count, new_start, new_count
+            ),
+            old_start,
+            old_count,
+            new_start,
+            new_count,
             lines,
             status: ReviewStatus::Pending,
             comment: None,
@@ -837,52 +883,76 @@ mod tests {
 
     #[test]
     fn test_line_numbers_context() {
-        let state = make_state_for_render(vec![
-            make_hunk_with_lines(10, 3, 10, 3, vec![
+        let state = make_state_for_render(vec![make_hunk_with_lines(
+            10,
+            3,
+            10,
+            3,
+            vec![
                 DiffLine::Context("line1".to_string()),
                 DiffLine::Context("line2".to_string()),
                 DiffLine::Context("line3".to_string()),
-            ]),
-        ]);
+            ],
+        )]);
         let lines = build_virtual_doc(&state);
         // line 0 = header, lines 1-3 = context lines
         assert_eq!(lines.len(), 4);
         // Check that line numbers appear in the spans
         let line1_text: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(line1_text.contains("10"), "Should contain old line 10: {}", line1_text);
+        assert!(
+            line1_text.contains("10"),
+            "Should contain old line 10: {}",
+            line1_text
+        );
     }
 
     #[test]
     fn test_line_numbers_added() {
-        let state = make_state_for_render(vec![
-            make_hunk_with_lines(1, 2, 1, 3, vec![
+        let state = make_state_for_render(vec![make_hunk_with_lines(
+            1,
+            2,
+            1,
+            3,
+            vec![
                 DiffLine::Context("ctx".to_string()),
                 DiffLine::Added("new".to_string()),
                 DiffLine::Context("ctx2".to_string()),
-            ]),
-        ]);
+            ],
+        )]);
         let lines = build_virtual_doc(&state);
         // header + 3 lines = 4
         assert_eq!(lines.len(), 4);
         // Added line (index 2) should have '+' marker
         let added_text: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(added_text.contains("+new"), "Should contain +new: {}", added_text);
+        assert!(
+            added_text.contains("+new"),
+            "Should contain +new: {}",
+            added_text
+        );
     }
 
     #[test]
     fn test_line_numbers_removed() {
-        let state = make_state_for_render(vec![
-            make_hunk_with_lines(5, 3, 5, 2, vec![
+        let state = make_state_for_render(vec![make_hunk_with_lines(
+            5,
+            3,
+            5,
+            2,
+            vec![
                 DiffLine::Context("ctx".to_string()),
                 DiffLine::Removed("old".to_string()),
                 DiffLine::Context("ctx2".to_string()),
-            ]),
-        ]);
+            ],
+        )]);
         let lines = build_virtual_doc(&state);
         assert_eq!(lines.len(), 4);
         // Removed line (index 2) should have '-' marker
         let removed_text: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(removed_text.contains("-old"), "Should contain -old: {}", removed_text);
+        assert!(
+            removed_text.contains("-old"),
+            "Should contain -old: {}",
+            removed_text
+        );
     }
 
     #[test]

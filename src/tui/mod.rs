@@ -1,16 +1,19 @@
 //! TUI module
 
-mod render;
-mod input;
-mod state;
 mod highlight;
+mod input;
+mod render;
+mod state;
 
-use anyhow::Result;
 use crate::model::Diff;
-use std::fs::OpenOptions;
-use crossterm::{event::{Event, KeyCode, KeyModifiers, MouseEvent, MouseEventKind, MouseButton}, execute, terminal};
-use ratatui::backend::CrosstermBackend;
+use anyhow::Result;
+use crossterm::{
+    event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    execute, terminal,
+};
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use std::fs::OpenOptions;
 
 use state::AppState;
 
@@ -27,9 +30,7 @@ impl Drop for CleanupGuard {
 
 /// Run the TUI and return the reviewed diff
 pub fn run(diff: Diff) -> Result<Diff> {
-    let mut tty_write = OpenOptions::new()
-        .write(true)
-        .open("/dev/tty")?;
+    let mut tty_write = OpenOptions::new().write(true).open("/dev/tty")?;
 
     crossterm::terminal::enable_raw_mode()?;
     execute!(tty_write, terminal::EnterAlternateScreen)?;

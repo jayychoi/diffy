@@ -138,7 +138,10 @@ impl AppState {
     }
 
     fn push_undo(&mut self, file_index: usize, hunk_index: usize, old_status: ReviewStatus) {
-        let old_comment = self.diff.files.get(file_index)
+        let old_comment = self
+            .diff
+            .files
+            .get(file_index)
             .and_then(|f| f.hunks.get(hunk_index))
             .and_then(|h| h.comment.clone());
         self.undo_stack.push(UndoEntry {
@@ -255,7 +258,11 @@ impl AppState {
         }
         // fallback: last hunk
         let last_fi = self.diff.files.len().saturating_sub(1);
-        let last_hi = self.diff.files.get(last_fi).map_or(0, |f| f.hunks.len().saturating_sub(1));
+        let last_hi = self
+            .diff
+            .files
+            .get(last_fi)
+            .map_or(0, |f| f.hunks.len().saturating_sub(1));
         (last_fi, last_hi)
     }
 
@@ -347,7 +354,9 @@ impl AppState {
     }
 
     pub(super) fn scroll_down(&mut self, n: usize) {
-        let max = self.virtual_doc_height().saturating_sub(self.viewport_height);
+        let max = self
+            .virtual_doc_height()
+            .saturating_sub(self.viewport_height);
         self.viewport_offset = (self.viewport_offset + n).min(max);
     }
 
@@ -438,7 +447,11 @@ impl AppState {
             self.push_undo(fi, hi, old_status);
         }
         if let Some(hunk) = self.current_hunk_mut() {
-            hunk.comment = if comment.is_empty() { None } else { Some(comment) };
+            hunk.comment = if comment.is_empty() {
+                None
+            } else {
+                Some(comment)
+            };
         }
     }
 
@@ -528,7 +541,10 @@ mod tests {
 
     #[test]
     fn test_undo_single() {
-        let mut state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Pending)],
+        )]);
         state.set_current_status(ReviewStatus::Accepted);
         assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Accepted);
         state.undo();
@@ -537,7 +553,10 @@ mod tests {
 
     #[test]
     fn test_undo_toggle() {
-        let mut state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Pending)],
+        )]);
         state.toggle_current_status(); // Pending -> Accepted
         assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Accepted);
         state.undo();
@@ -546,7 +565,10 @@ mod tests {
 
     #[test]
     fn test_undo_empty_stack() {
-        let mut state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Pending)],
+        )]);
         state.undo(); // should be no-op
         assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Pending);
         assert_eq!(state.file_index, 0);
@@ -556,7 +578,13 @@ mod tests {
     #[test]
     fn test_undo_accept_all() {
         let mut state = make_state(vec![
-            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending), make_hunk(ReviewStatus::Pending)]),
+            make_file(
+                "a.rs",
+                vec![
+                    make_hunk(ReviewStatus::Pending),
+                    make_hunk(ReviewStatus::Pending),
+                ],
+            ),
             make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
         ]);
         state.set_all_status(ReviewStatus::Accepted);
@@ -600,7 +628,13 @@ mod tests {
     #[test]
     fn test_first_hunk() {
         let mut state = make_state(vec![
-            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending), make_hunk(ReviewStatus::Pending)]),
+            make_file(
+                "a.rs",
+                vec![
+                    make_hunk(ReviewStatus::Pending),
+                    make_hunk(ReviewStatus::Pending),
+                ],
+            ),
             make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
         ]);
         state.file_index = 1;
@@ -614,7 +648,13 @@ mod tests {
     fn test_last_hunk() {
         let mut state = make_state(vec![
             make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)]),
-            make_file("b.rs", vec![make_hunk(ReviewStatus::Pending), make_hunk(ReviewStatus::Pending)]),
+            make_file(
+                "b.rs",
+                vec![
+                    make_hunk(ReviewStatus::Pending),
+                    make_hunk(ReviewStatus::Pending),
+                ],
+            ),
         ]);
         state.last_hunk();
         assert_eq!(state.file_index, 1);
@@ -624,7 +664,13 @@ mod tests {
     #[test]
     fn test_next_pending_wrap() {
         let mut state = make_state(vec![
-            make_file("a.rs", vec![make_hunk(ReviewStatus::Accepted), make_hunk(ReviewStatus::Pending)]),
+            make_file(
+                "a.rs",
+                vec![
+                    make_hunk(ReviewStatus::Accepted),
+                    make_hunk(ReviewStatus::Pending),
+                ],
+            ),
             make_file("b.rs", vec![make_hunk(ReviewStatus::Accepted)]),
         ]);
         state.file_index = 1;
@@ -638,9 +684,10 @@ mod tests {
 
     #[test]
     fn test_next_pending_none() {
-        let mut state = make_state(vec![
-            make_file("a.rs", vec![make_hunk(ReviewStatus::Accepted)]),
-        ]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Accepted)],
+        )]);
         let found = state.next_pending();
         assert!(!found);
         assert_eq!(state.file_index, 0);
@@ -650,7 +697,13 @@ mod tests {
     #[test]
     fn test_flat_to_indices() {
         let state = make_state(vec![
-            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending), make_hunk(ReviewStatus::Pending)]),
+            make_file(
+                "a.rs",
+                vec![
+                    make_hunk(ReviewStatus::Pending),
+                    make_hunk(ReviewStatus::Pending),
+                ],
+            ),
             make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
         ]);
         assert_eq!(state.flat_to_indices(0), (0, 0));
@@ -667,7 +720,9 @@ mod tests {
             old_count: 1,
             new_start: 1,
             new_count: 1,
-            lines: (0..n).map(|i| DiffLine::Context(format!("line{}", i))).collect(),
+            lines: (0..n)
+                .map(|i| DiffLine::Context(format!("line{}", i)))
+                .collect(),
             status,
             comment: None,
         }
@@ -676,11 +731,14 @@ mod tests {
     #[test]
     fn test_virtual_doc_height() {
         // 3 hunks, current=0 with 5 lines
-        let mut state = make_state(vec![make_file("a.rs", vec![
-            make_hunk_with_lines(5, ReviewStatus::Pending),
-            make_hunk_with_lines(3, ReviewStatus::Pending),
-            make_hunk_with_lines(2, ReviewStatus::Pending),
-        ])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![
+                make_hunk_with_lines(5, ReviewStatus::Pending),
+                make_hunk_with_lines(3, ReviewStatus::Pending),
+                make_hunk_with_lines(2, ReviewStatus::Pending),
+            ],
+        )]);
         state.hunk_index = 0;
         // hunk0: 1 header + 5 lines = 6, hunk1: 1, hunk2: 1 => 8
         assert_eq!(state.virtual_doc_height(), 8);
@@ -688,11 +746,14 @@ mod tests {
 
     #[test]
     fn test_ensure_visible_scrolls_down() {
-        let mut state = make_state(vec![make_file("a.rs", vec![
-            make_hunk_with_lines(10, ReviewStatus::Pending),
-            make_hunk_with_lines(10, ReviewStatus::Pending),
-            make_hunk_with_lines(10, ReviewStatus::Pending),
-        ])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![
+                make_hunk_with_lines(10, ReviewStatus::Pending),
+                make_hunk_with_lines(10, ReviewStatus::Pending),
+                make_hunk_with_lines(10, ReviewStatus::Pending),
+            ],
+        )]);
         state.viewport_height = 5;
         state.viewport_offset = 0;
         state.hunk_index = 2;
@@ -705,10 +766,13 @@ mod tests {
 
     #[test]
     fn test_ensure_visible_scrolls_up() {
-        let mut state = make_state(vec![make_file("a.rs", vec![
-            make_hunk_with_lines(5, ReviewStatus::Pending),
-            make_hunk_with_lines(5, ReviewStatus::Pending),
-        ])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![
+                make_hunk_with_lines(5, ReviewStatus::Pending),
+                make_hunk_with_lines(5, ReviewStatus::Pending),
+            ],
+        )]);
         state.viewport_height = 10;
         state.viewport_offset = 5;
         state.hunk_index = 0;
@@ -718,9 +782,10 @@ mod tests {
 
     #[test]
     fn test_page_down_clamps() {
-        let mut state = make_state(vec![make_file("a.rs", vec![
-            make_hunk_with_lines(3, ReviewStatus::Pending),
-        ])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk_with_lines(3, ReviewStatus::Pending)],
+        )]);
         state.viewport_height = 10;
         state.viewport_offset = 0;
         state.scroll_down(100);
@@ -731,7 +796,10 @@ mod tests {
     #[test]
     fn test_file_change_resets_viewport() {
         let mut state = make_state(vec![
-            make_file("a.rs", vec![make_hunk_with_lines(20, ReviewStatus::Pending)]),
+            make_file(
+                "a.rs",
+                vec![make_hunk_with_lines(20, ReviewStatus::Pending)],
+            ),
             make_file("b.rs", vec![make_hunk_with_lines(5, ReviewStatus::Pending)]),
         ]);
         state.viewport_offset = 15;
@@ -744,9 +812,10 @@ mod tests {
 
     #[test]
     fn test_single_hunk_navigation() {
-        let mut state = make_state(vec![
-            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)]),
-        ]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Pending)],
+        )]);
         // next_hunk on single hunk should stay at index 0
         state.next_hunk();
         assert_eq!(state.file_index, 0);
@@ -759,9 +828,10 @@ mod tests {
 
     #[test]
     fn test_large_hunk_viewport() {
-        let mut state = make_state(vec![
-            make_file("a.rs", vec![make_hunk_with_lines(100, ReviewStatus::Pending)]),
-        ]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk_with_lines(100, ReviewStatus::Pending)],
+        )]);
         state.viewport_height = 20;
         state.ensure_visible();
         // Hunk = 1 header + 100 lines = 101, viewport = 20
@@ -778,7 +848,13 @@ mod tests {
     #[test]
     fn test_all_pending_next_pending() {
         let mut state = make_state(vec![
-            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending), make_hunk(ReviewStatus::Pending)]),
+            make_file(
+                "a.rs",
+                vec![
+                    make_hunk(ReviewStatus::Pending),
+                    make_hunk(ReviewStatus::Pending),
+                ],
+            ),
             make_file("b.rs", vec![make_hunk(ReviewStatus::Pending)]),
         ]);
         // All hunks are Pending; next_pending should move to next hunk
@@ -802,9 +878,10 @@ mod tests {
 
     #[test]
     fn test_undo_after_toggle_cycle() {
-        let mut state = make_state(vec![
-            make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)]),
-        ]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Pending)],
+        )]);
         // Toggle 3 times: Pending → Accepted → Rejected → Pending
         state.toggle_current_status();
         assert_eq!(state.current_hunk().unwrap().status, ReviewStatus::Accepted);
@@ -829,7 +906,10 @@ mod tests {
     fn make_search_state() -> AppState {
         let hunk0 = Hunk {
             header: "@@ -1,3 +1,3 @@".to_string(),
-            old_start: 1, old_count: 3, new_start: 1, new_count: 3,
+            old_start: 1,
+            old_count: 3,
+            new_start: 1,
+            new_count: 3,
             lines: vec![
                 DiffLine::Context("hello world".to_string()),
                 DiffLine::Added("foo bar".to_string()),
@@ -840,7 +920,10 @@ mod tests {
         };
         let hunk1 = Hunk {
             header: "@@ -10,2 +10,2 @@".to_string(),
-            old_start: 10, old_count: 2, new_start: 10, new_count: 2,
+            old_start: 10,
+            old_count: 2,
+            new_start: 10,
+            new_count: 2,
             lines: vec![
                 DiffLine::Context("hello again".to_string()),
                 DiffLine::Added("world peace".to_string()),
@@ -849,13 +932,19 @@ mod tests {
             comment: None,
         };
         let file0 = make_file("a.rs", vec![hunk0, hunk1]);
-        let file1 = make_file("b.rs", vec![Hunk {
-            header: "@@ -1,1 +1,1 @@".to_string(),
-            old_start: 1, old_count: 1, new_start: 1, new_count: 1,
-            lines: vec![DiffLine::Context("hello b".to_string())],
-            status: ReviewStatus::Pending,
-            comment: None,
-        }]);
+        let file1 = make_file(
+            "b.rs",
+            vec![Hunk {
+                header: "@@ -1,1 +1,1 @@".to_string(),
+                old_start: 1,
+                old_count: 1,
+                new_start: 1,
+                new_count: 1,
+                lines: vec![DiffLine::Context("hello b".to_string())],
+                status: ReviewStatus::Pending,
+                comment: None,
+            }],
+        );
         make_state(vec![file0, file1])
     }
 
@@ -988,7 +1077,10 @@ mod tests {
 
     #[test]
     fn test_diff_view_mode_default() {
-        let state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        let state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Pending)],
+        )]);
         assert_eq!(state.diff_view_mode, DiffViewMode::Unified);
     }
 
@@ -996,7 +1088,10 @@ mod tests {
 
     #[test]
     fn test_mouse_default_off() {
-        let state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        let state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Pending)],
+        )]);
         assert!(!state.show_mouse);
     }
 
@@ -1020,9 +1115,10 @@ mod tests {
 
     #[test]
     fn test_scroll_via_mouse() {
-        let mut state = make_state(vec![make_file("a.rs", vec![
-            make_hunk_with_lines(20, ReviewStatus::Pending),
-        ])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk_with_lines(20, ReviewStatus::Pending)],
+        )]);
         state.viewport_height = 10;
         state.viewport_offset = 5;
 
@@ -1044,15 +1140,27 @@ mod tests {
 
     #[test]
     fn test_undo_restores_comment() {
-        let mut state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Pending)],
+        )]);
         state.set_current_comment("old comment".to_string());
-        assert_eq!(state.current_hunk().unwrap().comment, Some("old comment".to_string()));
+        assert_eq!(
+            state.current_hunk().unwrap().comment,
+            Some("old comment".to_string())
+        );
 
         state.set_current_comment("new comment".to_string());
-        assert_eq!(state.current_hunk().unwrap().comment, Some("new comment".to_string()));
+        assert_eq!(
+            state.current_hunk().unwrap().comment,
+            Some("new comment".to_string())
+        );
 
         state.undo();
-        assert_eq!(state.current_hunk().unwrap().comment, Some("old comment".to_string()));
+        assert_eq!(
+            state.current_hunk().unwrap().comment,
+            Some("old comment".to_string())
+        );
 
         state.undo();
         assert_eq!(state.current_hunk().unwrap().comment, None);
@@ -1060,7 +1168,10 @@ mod tests {
 
     #[test]
     fn test_comment_empty_clears() {
-        let mut state = make_state(vec![make_file("a.rs", vec![make_hunk(ReviewStatus::Pending)])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![make_hunk(ReviewStatus::Pending)],
+        )]);
         state.set_current_comment("comment".to_string());
         assert!(state.current_hunk().unwrap().comment.is_some());
 
@@ -1070,10 +1181,13 @@ mod tests {
 
     #[test]
     fn test_virtual_doc_height_with_comment() {
-        let mut state = make_state(vec![make_file("a.rs", vec![
-            make_hunk_with_lines(5, ReviewStatus::Pending),
-            make_hunk_with_lines(3, ReviewStatus::Pending),
-        ])]);
+        let mut state = make_state(vec![make_file(
+            "a.rs",
+            vec![
+                make_hunk_with_lines(5, ReviewStatus::Pending),
+                make_hunk_with_lines(3, ReviewStatus::Pending),
+            ],
+        )]);
         state.hunk_index = 0;
 
         // No comments: hunk0 (1+5) + hunk1 (1) = 7

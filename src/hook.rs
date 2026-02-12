@@ -1,15 +1,17 @@
 //! Claude Code hook mode: stderr 피드백
 
-use std::io::Write;
-use anyhow::Result;
 use crate::model::{Diff, ReviewStatus};
+use anyhow::Result;
+use std::io::Write;
 
 /// 리뷰 결과를 stderr로 출력한다.
 /// 모든 헌크가 accepted이면 true, rejected가 있으면 false를 반환한다.
 pub fn write_feedback(diff: &Diff, writer: &mut impl Write) -> Result<bool> {
     let total: usize = diff.files.iter().map(|f| f.hunks.len()).sum();
 
-    let rejected: Vec<_> = diff.files.iter()
+    let rejected: Vec<_> = diff
+        .files
+        .iter()
         .flat_map(|f| f.hunks.iter().map(move |h| (f, h)))
         .filter(|(_, h)| h.status == ReviewStatus::Rejected)
         .collect();
@@ -71,10 +73,13 @@ mod tests {
     #[test]
     fn test_all_accepted() {
         let diff = Diff {
-            files: vec![make_file("src/main.rs", vec![
-                make_hunk(1, 3, ReviewStatus::Accepted),
-                make_hunk(10, 5, ReviewStatus::Accepted),
-            ])],
+            files: vec![make_file(
+                "src/main.rs",
+                vec![
+                    make_hunk(1, 3, ReviewStatus::Accepted),
+                    make_hunk(10, 5, ReviewStatus::Accepted),
+                ],
+            )],
         };
 
         let mut output = Vec::new();
@@ -88,10 +93,13 @@ mod tests {
     #[test]
     fn test_some_rejected() {
         let diff = Diff {
-            files: vec![make_file("src/main.rs", vec![
-                make_hunk(1, 3, ReviewStatus::Accepted),
-                make_hunk(10, 5, ReviewStatus::Rejected),
-            ])],
+            files: vec![make_file(
+                "src/main.rs",
+                vec![
+                    make_hunk(1, 3, ReviewStatus::Accepted),
+                    make_hunk(10, 5, ReviewStatus::Rejected),
+                ],
+            )],
         };
 
         let mut output = Vec::new();
@@ -106,10 +114,13 @@ mod tests {
     #[test]
     fn test_all_rejected() {
         let diff = Diff {
-            files: vec![make_file("src/lib.rs", vec![
-                make_hunk(1, 2, ReviewStatus::Rejected),
-                make_hunk(5, 3, ReviewStatus::Rejected),
-            ])],
+            files: vec![make_file(
+                "src/lib.rs",
+                vec![
+                    make_hunk(1, 2, ReviewStatus::Rejected),
+                    make_hunk(5, 3, ReviewStatus::Rejected),
+                ],
+            )],
         };
 
         let mut output = Vec::new();

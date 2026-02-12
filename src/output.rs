@@ -1,9 +1,9 @@
 //! accept된 헌크 재조립 및 JSON 출력
 
-use std::io::Write;
+use crate::model::{Diff, DiffLine, ReviewStatus};
 use anyhow::Result;
 use serde::Serialize;
-use crate::model::{Diff, DiffLine, ReviewStatus};
+use std::io::Write;
 
 /// accepted 헌크만 재조립하여 writer에 출력한다.
 /// 하나 이상의 헌크가 출력되었으면 true, 아무것도 출력되지 않았으면 false를 반환한다.
@@ -17,7 +17,9 @@ pub fn write_diff<W: Write>(diff: &Diff, writer: &mut W) -> Result<bool> {
         }
 
         // accepted 헌크만 필터링
-        let accepted_hunks: Vec<_> = file.hunks.iter()
+        let accepted_hunks: Vec<_> = file
+            .hunks
+            .iter()
             .filter(|h| h.status == ReviewStatus::Accepted)
             .collect();
 
@@ -87,24 +89,32 @@ pub fn write_json<W: Write>(diff: &Diff, writer: &mut W) -> Result<()> {
     let mut rejected = 0usize;
     let mut pending = 0usize;
 
-    let files: Vec<JsonFile> = diff.files.iter().map(|f| {
-        let hunks: Vec<JsonHunk> = f.hunks.iter().map(|h| {
-            match h.status {
-                ReviewStatus::Accepted => accepted += 1,
-                ReviewStatus::Rejected => rejected += 1,
-                ReviewStatus::Pending => pending += 1,
+    let files: Vec<JsonFile> = diff
+        .files
+        .iter()
+        .map(|f| {
+            let hunks: Vec<JsonHunk> = f
+                .hunks
+                .iter()
+                .map(|h| {
+                    match h.status {
+                        ReviewStatus::Accepted => accepted += 1,
+                        ReviewStatus::Rejected => rejected += 1,
+                        ReviewStatus::Pending => pending += 1,
+                    }
+                    JsonHunk {
+                        header: h.header.clone(),
+                        status: format!("{:?}", h.status).to_lowercase(),
+                        comment: h.comment.clone(),
+                    }
+                })
+                .collect();
+            JsonFile {
+                path: &f.new_path,
+                hunks,
             }
-            JsonHunk {
-                header: h.header.clone(),
-                status: format!("{:?}", h.status).to_lowercase(),
-                comment: h.comment.clone(),
-            }
-        }).collect();
-        JsonFile {
-            path: &f.new_path,
-            hunks,
-        }
-    }).collect();
+        })
+        .collect();
 
     let output = JsonOutput {
         version: env!("CARGO_PKG_VERSION"),
@@ -155,8 +165,14 @@ mod tests {
     /// 테스트용 파일 생성 헬퍼
     fn make_file(old_path: &str, new_path: &str, hunks: Vec<Hunk>, is_binary: bool) -> FileDiff {
         FileDiff {
-            old_path: old_path.trim_start_matches("a/").trim_start_matches("b/").to_string(),
-            new_path: new_path.trim_start_matches("a/").trim_start_matches("b/").to_string(),
+            old_path: old_path
+                .trim_start_matches("a/")
+                .trim_start_matches("b/")
+                .to_string(),
+            new_path: new_path
+                .trim_start_matches("a/")
+                .trim_start_matches("b/")
+                .to_string(),
             raw_old_path: old_path.to_string(),
             raw_new_path: new_path.to_string(),
             hunks,
@@ -168,7 +184,10 @@ mod tests {
     fn test_all_accepted() {
         let hunk = make_hunk(
             "@@ -1,3 +1,3 @@",
-            1, 3, 1, 3,
+            1,
+            3,
+            1,
+            3,
             vec![
                 DiffLine::Context("line1".to_string()),
                 DiffLine::Removed("line2".to_string()),
@@ -203,7 +222,10 @@ mod tests {
     fn test_all_rejected() {
         let hunk = make_hunk(
             "@@ -1,3 +1,3 @@",
-            1, 3, 1, 3,
+            1,
+            3,
+            1,
+            3,
             vec![
                 DiffLine::Context("line1".to_string()),
                 DiffLine::Removed("line2".to_string()),
@@ -227,7 +249,10 @@ mod tests {
     fn test_partial_accept() {
         let hunk1 = make_hunk(
             "@@ -1,2 +1,2 @@",
-            1, 2, 1, 2,
+            1,
+            2,
+            1,
+            2,
             vec![
                 DiffLine::Removed("old line".to_string()),
                 DiffLine::Added("new line".to_string()),
@@ -237,7 +262,10 @@ mod tests {
 
         let hunk2 = make_hunk(
             "@@ -10,2 +10,2 @@",
-            10, 2, 10, 2,
+            10,
+            2,
+            10,
+            2,
             vec![
                 DiffLine::Removed("another old".to_string()),
                 DiffLine::Added("another new".to_string()),
@@ -247,7 +275,10 @@ mod tests {
 
         let hunk3 = make_hunk(
             "@@ -20,2 +20,2 @@",
-            20, 2, 20, 2,
+            20,
+            2,
+            20,
+            2,
             vec![
                 DiffLine::Context("context line".to_string()),
                 DiffLine::Added("added line".to_string()),
@@ -281,7 +312,10 @@ mod tests {
     fn test_no_newline_roundtrip() {
         let hunk = make_hunk(
             "@@ -1,1 +1,1 @@",
-            1, 1, 1, 1,
+            1,
+            1,
+            1,
+            1,
             vec![
                 DiffLine::Removed("old content".to_string()),
                 DiffLine::NoNewline,
@@ -297,7 +331,10 @@ mod tests {
         let mut output = Vec::new();
         let result = write_diff(&diff, &mut output).unwrap();
 
-        assert!(result, "Should return true when hunks with NoNewline are written");
+        assert!(
+            result,
+            "Should return true when hunks with NoNewline are written"
+        );
 
         let expected = indoc! {"
             --- a/file.txt
@@ -316,7 +353,10 @@ mod tests {
     fn test_binary_file_skipped() {
         let hunk = make_hunk(
             "@@ -1,1 +1,1 @@",
-            1, 1, 1, 1,
+            1,
+            1,
+            1,
+            1,
             vec![DiffLine::Added("binary content".to_string())],
             ReviewStatus::Accepted,
         );
@@ -328,7 +368,10 @@ mod tests {
         let result = write_diff(&diff, &mut output).unwrap();
 
         assert!(!result, "Should return false when binary files are skipped");
-        assert!(output.is_empty(), "Should produce empty output for binary files");
+        assert!(
+            output.is_empty(),
+            "Should produce empty output for binary files"
+        );
     }
 
     #[test]
@@ -336,7 +379,10 @@ mod tests {
         // 첫 번째 파일: accepted 헌크 있음
         let file1_hunk = make_hunk(
             "@@ -1,1 +1,1 @@",
-            1, 1, 1, 1,
+            1,
+            1,
+            1,
+            1,
             vec![DiffLine::Added("file1 change".to_string())],
             ReviewStatus::Accepted,
         );
@@ -345,7 +391,10 @@ mod tests {
         // 두 번째 파일: 모두 rejected
         let file2_hunk = make_hunk(
             "@@ -1,1 +1,1 @@",
-            1, 1, 1, 1,
+            1,
+            1,
+            1,
+            1,
             vec![DiffLine::Added("file2 change".to_string())],
             ReviewStatus::Rejected,
         );
@@ -354,18 +403,26 @@ mod tests {
         // 세 번째 파일: accepted 헌크 있음
         let file3_hunk = make_hunk(
             "@@ -1,1 +1,1 @@",
-            1, 1, 1, 1,
+            1,
+            1,
+            1,
+            1,
             vec![DiffLine::Added("file3 change".to_string())],
             ReviewStatus::Accepted,
         );
         let file3 = make_file("a/file3.txt", "b/file3.txt", vec![file3_hunk], false);
 
-        let diff = Diff { files: vec![file1, file2, file3] };
+        let diff = Diff {
+            files: vec![file1, file2, file3],
+        };
 
         let mut output = Vec::new();
         let result = write_diff(&diff, &mut output).unwrap();
 
-        assert!(result, "Should return true when some files have accepted hunks");
+        assert!(
+            result,
+            "Should return true when some files have accepted hunks"
+        );
 
         let expected = indoc! {"
             --- a/file1.txt
@@ -386,8 +443,15 @@ mod tests {
     #[test]
     fn test_json_all_accepted() {
         let hunk = make_hunk(
-            "@@ -1,2 +1,2 @@", 1, 2, 1, 2,
-            vec![DiffLine::Removed("old".to_string()), DiffLine::Added("new".to_string())],
+            "@@ -1,2 +1,2 @@",
+            1,
+            2,
+            1,
+            2,
+            vec![
+                DiffLine::Removed("old".to_string()),
+                DiffLine::Added("new".to_string()),
+            ],
             ReviewStatus::Accepted,
         );
         let file = make_file("a/file.txt", "b/file.txt", vec![hunk], false);
@@ -408,7 +472,11 @@ mod tests {
     #[test]
     fn test_json_all_rejected() {
         let hunk = make_hunk(
-            "@@ -1,1 +1,1 @@", 1, 1, 1, 1,
+            "@@ -1,1 +1,1 @@",
+            1,
+            1,
+            1,
+            1,
             vec![DiffLine::Added("x".to_string())],
             ReviewStatus::Rejected,
         );
@@ -426,10 +494,24 @@ mod tests {
 
     #[test]
     fn test_json_partial() {
-        let h1 = make_hunk("@@ -1,1 +1,1 @@", 1, 1, 1, 1,
-            vec![DiffLine::Added("a".to_string())], ReviewStatus::Accepted);
-        let h2 = make_hunk("@@ -5,1 +5,1 @@", 5, 1, 5, 1,
-            vec![DiffLine::Added("b".to_string())], ReviewStatus::Rejected);
+        let h1 = make_hunk(
+            "@@ -1,1 +1,1 @@",
+            1,
+            1,
+            1,
+            1,
+            vec![DiffLine::Added("a".to_string())],
+            ReviewStatus::Accepted,
+        );
+        let h2 = make_hunk(
+            "@@ -5,1 +5,1 @@",
+            5,
+            1,
+            5,
+            1,
+            vec![DiffLine::Added("b".to_string())],
+            ReviewStatus::Rejected,
+        );
         let file = make_file("a/mix.rs", "b/mix.rs", vec![h1, h2], false);
         let diff = Diff { files: vec![file] };
 

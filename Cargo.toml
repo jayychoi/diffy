@@ -1,7 +1,19 @@
 [package]
-name = "diffy"
+name = "diffy-tui"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.85.0"
+description = "Interactive TUI diff reviewer for Claude Code"
+license = "MIT"
+repository = "https://github.com/jaykang-heo/diffy"
+keywords = ["diff", "tui", "code-review", "claude", "git"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+exclude = [".omc/", "specs/", "plugin/"]
+
+[[bin]]
+name = "diffy"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.101"
