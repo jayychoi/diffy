@@ -2,7 +2,7 @@
 
 Interactive TUI diff reviewer for Claude Code
 
-[![CI](https://github.com/jaykang-heo/diffy/actions/workflows/ci.yml/badge.svg)](https://github.com/jaykang-heo/diffy/actions/workflows/ci.yml)
+[![CI](https://github.com/jayychoi/diffy/actions/workflows/ci.yml/badge.svg)](https://github.com/jayychoi/diffy/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/diffy-tui.svg)](https://crates.io/crates/diffy-tui)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -40,13 +40,32 @@ The binary is installed as `diffy`.
 
 ### From GitHub Releases
 
-Download the latest binary for your platform from the [releases page](https://github.com/jaykang-heo/diffy/releases).
+Download the latest binary for your platform from the [releases page](https://github.com/jayychoi/diffy/releases).
 
 ### Verify installation
 
 ```bash
 diffy --version
 ```
+
+## Claude Code Plugin
+
+For Claude Code users, the easiest way to integrate diffy is via the plugin:
+
+### Install the plugin
+
+1. Open Claude Code
+2. Run `/plugin`
+3. Add marketplace: `https://github.com/jayychoi/diffy`
+4. Search for and install "diffy"
+
+### After installation
+
+- `/diffy:setup` — Installation and configuration guide
+- `/diffy:help` — Keyboard shortcuts and usage reference
+- Stop hook auto-runs diffy after code changes
+
+The plugin handles all integration automatically. No manual setup needed!
 
 ## Usage
 
@@ -111,9 +130,13 @@ diffy --restore
 
 Diffy was built to integrate seamlessly with Claude Code's stop hooks. When Claude makes changes, diffy automatically reviews them and provides structured feedback.
 
-### Setup
+### Recommended: Use the plugin
 
-Add this to your `.claude/settings.json`:
+For the easiest setup, install the diffy plugin (see **Claude Code Plugin** section above). The plugin configures everything automatically.
+
+### Manual setup (optional)
+
+If you prefer manual configuration, add this to your `.claude/settings.json`:
 
 ```json
 {
@@ -353,7 +376,7 @@ Press `m` to toggle mouse mode on. Some terminals may not support mouse events.
 ### Build from source
 
 ```bash
-git clone https://github.com/jaykang-heo/diffy.git
+git clone https://github.com/jayychoi/diffy.git
 cd diffy
 cargo build --release
 ./target/release/diffy --version
