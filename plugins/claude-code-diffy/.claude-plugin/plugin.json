@@ -1,16 +1,16 @@
 {
-  "name": "diffy",
+  "name": "claude-code-diffy",
   "version": "0.3.0",
   "description": "Interactive TUI diff reviewer for Claude Code — accept/reject hunks with structured feedback",
   "author": {
-    "name": "Jay-young Choi",
-    "url": "https://github.com/jayychoi/diffy"
+    "name": "Jayyoung Choi",
+    "url": "https://github.com/jayychoi/diffy",
+    "email": "jayyoungchoi22@gmail.com"
   },
   "homepage": "https://github.com/jayychoi/diffy",
   "repository": "https://github.com/jayychoi/diffy",
   "license": "MIT",
   "keywords": ["diff", "review", "tui", "feedback", "rust"],
-  "commands": "./commands/",
   "skills": "./skills/",
   "hooks": "./hooks/hooks.json"
 }

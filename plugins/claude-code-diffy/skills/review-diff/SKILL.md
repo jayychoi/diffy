@@ -1,13 +1,6 @@
 ---
 name: review-diff
-description: |
-  Review a diff of code changes interactively with diffy.
-  Use when Claude Code generates a set of code changes and
-  you want to accept/reject them hunk-by-hunk before applying.
-trigger:
-  - "review.*diff"
-  - "accept.*reject.*change"
-  - "interactive.*review"
+description: Review a diff of code changes interactively with diffy. Use when Claude Code generates a set of code changes and you want to accept/reject them hunk-by-hunk before applying.
 ---
 
 # Diff Review Skill

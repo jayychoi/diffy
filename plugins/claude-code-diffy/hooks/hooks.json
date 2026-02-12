@@ -2,12 +2,11 @@
   "hooks": {
     "Stop": [
       {
-        "matcher": "",
-        "description": "Review code changes before stopping",
         "hooks": [
           {
             "type": "command",
-            "command": "bash plugin/hooks/stop.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/diffy.sh\"",
+            "timeout": 300
           }
         ]
       }

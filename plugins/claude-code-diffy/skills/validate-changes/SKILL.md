@@ -1,12 +1,6 @@
 ---
 name: validate-changes
-description: |
-  Validate that applied changes are syntactically correct and don't
-  break existing functionality. Use after code generation or refactoring.
-trigger:
-  - "validate.*change"
-  - "check.*compile"
-  - "test.*after.*generate"
+description: Validate that applied changes are syntactically correct and don't break existing functionality. Use after code generation or refactoring.
 ---
 
 # Change Validation Skill

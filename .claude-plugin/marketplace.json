@@ -1,18 +1,21 @@
 {
   "version": "1.0",
-  "name": "Diffy Marketplace",
+  "name": "claude-code-diffy",
   "description": "Official marketplace for diffy - interactive TUI diff reviewer for Claude Code",
   "owner": {
-    "name": "Jay-young Choi",
-    "url": "https://github.com/jayychoi/diffy"
+    "name": "Jayyoung Choi",
+    "email": "jayyoungchoi22@gmail.com"
   },
   "plugins": [
     {
-      "name": "diffy",
-      "source": "./plugin",
+      "name": "claude-code-diffy",
+      "source": "./",
       "version": "0.3.0",
       "description": "Interactive TUI diff reviewer for Claude Code — accept/reject hunks with structured feedback",
-      "author": "Jay-young Choi",
+      "author": {
+        "name": "Jayyoung Choi",
+        "email": "jayyoungchoi22@gmail.com"
+      },
       "repository": "https://github.com/jayychoi/diffy",
       "homepage": "https://github.com/jayychoi/diffy",
       "license": "MIT",
